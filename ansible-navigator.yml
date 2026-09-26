@@ -1,0 +1,60 @@
+---
+# =============================================================================
+# ansible-navigator settings for local testing of network-drift-manager.yaml
+# inside the demojam-2027-ee Execution Environment.
+#
+# See STEPS.md for the full walkthrough. Quick usage:
+#   ansible-navigator run network-drift-manager.yaml \
+#     -e device_name=rtr-core-01 \
+#     -e device_attributes='{"dns_servers": ["10.10.0.53"]}'
+# =============================================================================
+ansible-navigator:
+  ansible:
+    inventory:
+      entries:
+        - localhost,
+
+  execution-environment:
+    # Local test EE built from ./Containerfile - see STEPS.md Step 1.
+    image: demojam-2027-ee:latest
+
+    pull:
+      policy: missing
+
+    # Environment variables to pass through from the HOST shell into the
+    # container. Only needed if you export these instead of putting them
+    # in .env (see STEPS.md Step 2, "Option B"). Harmless to leave listed
+    # even when unset.
+    environment-variables:
+      pass:
+        - MAAS_API_KEY
+        - NETBOX_TOKEN
+        - NETBOX_MCP_TOKEN
+        - GITHUB_MCP_TOKEN
+        - AAP_TOKEN
+        - PYTHONUNBUFFERED
+        - TZ
+
+    # /tmp -> /tmp so the input JSON + run log written by
+    # network-drift-manager.yaml (drift_input_file / drift_log_file)
+    # persist on the host after the container exits.
+    volume-mounts:
+      - src: /tmp
+        dest: /tmp
+        options: rw
+
+    container-options:
+      - "--user=0"          # avoid uid/gid mismatch writing to /tmp locally
+      - "--network=host"     # so the container can reach a real NetBox/GitHub/AAP/MaaS if configured
+
+  logging:
+    file: ./ansible-navigator.log
+    level: info
+    append: true
+
+  mode: stdout
+
+  playbook-artifact:
+    enable: false
+
+  time-zone: UTC

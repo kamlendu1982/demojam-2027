@@ -1,0 +1,415 @@
+# =============================================================================
+# Network Drift Manager - Ansible Playbook
+# =============================================================================
+# Runs the deterministic 4-agent network drift pipeline (run_pipeline.py)
+# as an AAP Job Template, inside an Execution Environment that provides
+# python3.12 + the packages in requirements.txt (mirrors the pattern used
+# by aap-drift-manager.yaml / aap-drift-manager-ee).
+#
+# HOW SECRETS AND VARIABLES ARE PASSED
+# =====================================
+# Sensitive values - set via an AAP Custom Credential (injector env vars):
+#     MAAS_API_KEY        - MaaS / LLM API key
+#     NETBOX_TOKEN         - Real NetBox API token (passed into the
+#                            embedded/stdio NetBox MCP server's environment)
+#     NETBOX_MCP_TOKEN     - Bearer token for an EXTERNALLY-HOSTED NetBox
+#                            MCP server's HTTP endpoint (only if
+#                            netbox_mcp_transport=http; NOT the same thing
+#                            as NETBOX_TOKEN above)
+#     GITHUB_MCP_TOKEN      - PAT / token for the GitHub MCP server
+#     AAP_TOKEN            - AAP controller API token (used to launch the
+#                            remediation job templates from Agents 2 & 4)
+#
+# Non-sensitive values - set as Job Template Extra Variables or Survey:
+#     maas_api_base, maas_model
+#     netbox_url                     - real NetBox instance URL (paired
+#                                       with the NETBOX_TOKEN credential)
+#     netbox_mcp_transport, netbox_mcp_url, netbox_mcp_command,
+#       netbox_verify_ssl, netbox_mcp_device_tool
+#     github_mcp_transport, github_mcp_url, github_mcp_command,
+#       github_policy_repo_owner, github_policy_repo_name,
+#       github_policy_branch, github_policy_path_template
+#     aap_url, aap_verify_ssl,
+#       aap_job_template_netbox_remediation, aap_job_template_github_remediation,
+#       aap_extra_vars_device_key
+#     demo_mode, log_level
+#
+# Per-run inputs - set as Job Template Extra Variables or Survey (this is
+# what actually varies from one run to the next, e.g. triggered by EDA on
+# a device-changed event, or a scheduled sweep):
+#     device_name        - name of the network device to check (required)
+#     device_attributes  - dict of observed attribute_name -> value (required)
+#     pipeline_apply      - true = launch AAP remediation job templates when
+#                           drift is found; false = plan only / dry-run (default)
+#
+# The playbook writes a .env file in the project directory before invoking
+# the Python pipeline, so it picks up all settings automatically - exactly
+# like aap-drift-manager.yaml does for the CrewAI drift agent.
+# =============================================================================
+
+- name: Network Drift Manager - detect and remediate NetBox/GitHub-governed drift
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    # -----------------------------------------------------------------
+    # Python interpreter
+    # In the EE, python3.12 is installed system-wide - no venv needed.
+    # When running locally with a venv, override this:
+    #   ansible-playbook ... -e drift_python=/path/to/venv/bin/python3.12
+    # -----------------------------------------------------------------
+    drift_python: "python3.12"
+    drift_script: "{{ playbook_dir }}/run_pipeline.py"
+    # NOTE: drift_input_file / drift_log_file are set via set_fact in
+    # pre_tasks (below) using a single `run_timestamp` computed once.
+    # A lookup('pipe', 'date ...') placed directly here would silently
+    # re-run on every reference to these vars, producing a DIFFERENT
+    # timestamp each time and breaking the input-file handoff between
+    # tasks — do not inline the lookup here.
+
+    # -----------------------------------------------------------------
+    # Per-run inputs (set these as Extra Variables / Survey per launch)
+    # -----------------------------------------------------------------
+    device_name: ""
+    device_attributes: {}
+    pipeline_apply: false      # true = launch AAP remediation; false = plan only
+
+    # -----------------------------------------------------------------
+    # Non-sensitive settings (set as Extra Variables or Survey in AAP)
+    # -----------------------------------------------------------------
+    maas_api_base: ""
+    maas_model: ""
+
+    # Real NetBox instance URL — pairs with the NETBOX_TOKEN credential.
+    netbox_url: ""
+
+    netbox_mcp_transport: "stdio"
+    netbox_mcp_url: ""
+    netbox_mcp_command: ""
+    netbox_verify_ssl: "true"
+    netbox_mcp_device_tool: ""
+
+    github_mcp_transport: "http"
+    github_mcp_url: ""
+    github_mcp_command: ""
+    github_policy_repo_owner: ""
+    github_policy_repo_name: ""
+    github_policy_branch: "main"
+    github_policy_path_template: "security-policies/{device}.yml"
+
+    aap_url: ""
+    aap_verify_ssl: "false"
+    aap_job_template_netbox_remediation: "revert-network-config-from-netbox"
+    aap_job_template_github_remediation: "revert-security-config-from-github"
+    aap_extra_vars_device_key: "device_name"
+
+    demo_mode: "false"
+    log_level: "INFO"
+
+    # -----------------------------------------------------------------
+    # Sensitive settings - injected by AAP Custom Credential as env vars:
+    #   MAAS_API_KEY, NETBOX_MCP_TOKEN, GITHUB_MCP_TOKEN, AAP_TOKEN
+    # The lookup('env', ...) calls below read them from the environment
+    # without ever exposing them in logs or Ansible facts.
+    # -----------------------------------------------------------------
+
+  pre_tasks:
+    # -----------------------------------------------------------------
+    # 0. Compute a single timestamp for this run and derive file paths
+    #    from it via set_fact (facts are evaluated once and cached;
+    #    plain `vars:` entries using lookup('pipe', ...) are NOT, and
+    #    would re-run — and change — on every reference).
+    # -----------------------------------------------------------------
+    - name: Compute run timestamp
+      ansible.builtin.set_fact:
+        run_timestamp: "{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}"
+
+    - name: Derive input/log file paths from the run timestamp
+      ansible.builtin.set_fact:
+        drift_input_file: "/tmp/network-drift-input-{{ run_timestamp }}.json"
+        drift_log_file: "/tmp/network-drift-{{ run_timestamp }}.log"
+
+    # -----------------------------------------------------------------
+    # DEBUG - credential injection check
+    # Tagged 'never' so it is skipped in normal runs.
+    # To enable: ansible-playbook network-drift-manager.yaml --tags debug
+    # -----------------------------------------------------------------
+    - name: DEBUG - credential injection check
+      ansible.builtin.debug:
+        msg:
+          - "MAAS_API_KEY  env var    : '{{ lookup('env', 'MAAS_API_KEY') }}'"
+          - "NETBOX_TOKEN env var     : '{{ lookup('env', 'NETBOX_TOKEN') }}'"
+          - "NETBOX_MCP_TOKEN env var : '{{ lookup('env', 'NETBOX_MCP_TOKEN') }}'"
+          - "GITHUB_MCP_TOKEN env var : '{{ lookup('env', 'GITHUB_MCP_TOKEN') }}'"
+          - "AAP_TOKEN env var        : '{{ lookup('env', 'AAP_TOKEN') }}'"
+          - "Will write .env          : {{ _aap_run }}"
+      tags: [never, debug]
+
+    - name: Determine whether this is an AAP-injected run
+      ansible.builtin.set_fact:
+        _aap_run: >-
+          {{
+            (lookup('env', 'MAAS_API_KEY') | length > 0) or
+            (lookup('env', 'NETBOX_TOKEN') | length > 0) or
+            (lookup('env', 'NETBOX_MCP_TOKEN') | length > 0) or
+            (lookup('env', 'GITHUB_MCP_TOKEN') | length > 0) or
+            (lookup('env', 'AAP_TOKEN') | length > 0)
+          }}
+
+    # -----------------------------------------------------------------
+    # 1. Validate required per-run inputs
+    # -----------------------------------------------------------------
+    - name: Abort - device_name not provided
+      ansible.builtin.fail:
+        msg: >-
+          'device_name' extra var is required, e.g.
+          -e device_name=rtr-core-01 -e device_attributes='{"vlan": 10}'
+      when: not device_name
+
+    - name: Abort - device_attributes not provided
+      ansible.builtin.fail:
+        msg: >-
+          'device_attributes' extra var is required (a dict of
+          attribute_name -> observed_value), e.g.
+          -e device_attributes='{"dns_servers": ["10.10.0.53"]}'
+      when: device_attributes | length == 0
+
+    # -----------------------------------------------------------------
+    # 2. Write .env from AAP credentials + extra vars (AAP runs only)
+    #
+    #    This task runs ONLY when at least one secret is injected as an
+    #    env var by an AAP Custom Credential. When running locally the
+    #    task is skipped and the existing .env file in the project
+    #    directory is used as-is (so local runs keep working unchanged).
+    # -----------------------------------------------------------------
+    - name: Write .env from AAP credentials and extra variables (AAP runs)
+      ansible.builtin.copy:
+        dest: "{{ playbook_dir }}/.env"
+        mode: "0600"
+        content: |
+          # Auto-generated by network-drift-manager.yaml - do not edit manually.
+          # Regenerated on every AAP job run from credentials and extra vars.
+
+          MAAS_API_BASE={{ maas_api_base }}
+          MAAS_API_KEY={{ lookup('env', 'MAAS_API_KEY') }}
+          MAAS_MODEL={{ maas_model }}
+
+          # Real NetBox instance credentials — consumed by the embedded/
+          # stdio NetBox MCP server's own process environment.
+          NETBOX_URL={{ netbox_url }}
+          NETBOX_TOKEN={{ lookup('env', 'NETBOX_TOKEN') }}
+
+          NETBOX_MCP_TRANSPORT={{ netbox_mcp_transport }}
+          NETBOX_MCP_COMMAND={{ netbox_mcp_command }}
+          NETBOX_VERIFY_SSL={{ netbox_verify_ssl }}
+          NETBOX_MCP_DEVICE_TOOL={{ netbox_mcp_device_tool }}
+
+          # Only relevant if netbox_mcp_transport=http (externally-hosted
+          # NetBox MCP server) — NOT the real NetBox credentials above.
+          NETBOX_MCP_URL={{ netbox_mcp_url }}
+          NETBOX_MCP_TOKEN={{ lookup('env', 'NETBOX_MCP_TOKEN') }}
+
+          GITHUB_MCP_TRANSPORT={{ github_mcp_transport }}
+          GITHUB_MCP_URL={{ github_mcp_url }}
+          GITHUB_MCP_TOKEN={{ lookup('env', 'GITHUB_MCP_TOKEN') }}
+          GITHUB_MCP_COMMAND={{ github_mcp_command }}
+          GITHUB_POLICY_REPO_OWNER={{ github_policy_repo_owner }}
+          GITHUB_POLICY_REPO_NAME={{ github_policy_repo_name }}
+          GITHUB_POLICY_BRANCH={{ github_policy_branch }}
+          GITHUB_POLICY_PATH_TEMPLATE={{ github_policy_path_template }}
+
+          AAP_URL={{ aap_url }}
+          AAP_TOKEN={{ lookup('env', 'AAP_TOKEN') }}
+          AAP_VERIFY_SSL={{ aap_verify_ssl }}
+          AAP_JOB_TEMPLATE_NETBOX_REMEDIATION={{ aap_job_template_netbox_remediation }}
+          AAP_JOB_TEMPLATE_GITHUB_REMEDIATION={{ aap_job_template_github_remediation }}
+          AAP_EXTRA_VARS_DEVICE_KEY={{ aap_extra_vars_device_key }}
+
+          DRY_RUN={{ 'false' if pipeline_apply | bool else 'true' }}
+          DEMO_MODE={{ demo_mode }}
+          LOG_LEVEL={{ log_level }}
+      when: _aap_run
+
+    # -----------------------------------------------------------------
+    # 3. Confirm .env exists (generated above OR pre-existing for local runs)
+    # -----------------------------------------------------------------
+    - name: Check .env file exists
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/.env"
+      register: _env_stat
+
+    - name: Abort - .env file missing and no AAP credential injection
+      ansible.builtin.fail:
+        msg: |
+          No .env file found at {{ playbook_dir }}/.env
+          and no secrets were injected by an AAP credential.
+
+          For LOCAL runs:
+            Make sure a .env file exists in the project directory.
+            Copy the example: cp .env.example .env  then fill in values.
+
+          For AAP runs:
+            Attach a Custom Credential (MAAS_API_KEY, NETBOX_MCP_TOKEN,
+            GITHUB_MCP_TOKEN, AAP_TOKEN) to this Job Template so secrets
+            are injected automatically.
+      when: not _env_stat.stat.exists
+
+    # -----------------------------------------------------------------
+    # 4. Verify run_pipeline.py was checked out from Git
+    # -----------------------------------------------------------------
+    - name: Check run_pipeline.py is present (Git checkout succeeded)
+      ansible.builtin.stat:
+        path: "{{ drift_script }}"
+      register: _script_stat
+
+    - name: Abort - run_pipeline.py not found
+      ansible.builtin.fail:
+        msg: >-
+          run_pipeline.py not found at: {{ drift_script }}.
+          Make sure the Job Template's Project points at the
+          network-drift-manager Git repository and the project sync has
+          completed.
+      when: not _script_stat.stat.exists
+
+    # -----------------------------------------------------------------
+    # 5. Verify Python 3.12 is available
+    # -----------------------------------------------------------------
+    - name: Confirm python3.12 is available in the EE
+      ansible.builtin.command:
+        cmd: "{{ drift_python }} --version"
+      register: _py_ver
+      changed_when: false
+      failed_when: _py_ver.rc != 0
+
+    - name: Show Python version
+      ansible.builtin.debug:
+        msg: "Using {{ _py_ver.stdout }}"
+
+    # -----------------------------------------------------------------
+    # 6. Write this run's device + attributes to a JSON input file
+    # -----------------------------------------------------------------
+    - name: Write pipeline input JSON
+      ansible.builtin.copy:
+        dest: "{{ drift_input_file }}"
+        mode: "0600"
+        content: "{{ {'device': device_name, 'attributes': device_attributes} | to_nice_json }}"
+
+  # -----------------------------------------------------------------------
+  # Main tasks
+  # -----------------------------------------------------------------------
+  tasks:
+    - name: Display run configuration
+      ansible.builtin.debug:
+        msg:
+          - "============================================================"
+          - " Network Drift Manager"
+          - "============================================================"
+          - "  Python  : {{ drift_python }}"
+          - "  Script  : {{ drift_script }}"
+          - "  Device  : {{ device_name }}"
+          - "  Mode    : {{ 'APPLY (launch AAP remediation)' if pipeline_apply | bool else 'DRY-RUN / PLAN ONLY' }}"
+          - "  Demo    : {{ demo_mode }}"
+          - "  Input   : {{ drift_input_file }}"
+          - "  Log     : {{ drift_log_file }}"
+          - "============================================================"
+
+    - name: Build command arguments
+      ansible.builtin.set_fact:
+        _drift_args: >-
+          --input {{ drift_input_file }}
+          {{ '--apply' if pipeline_apply | bool else '' }}
+
+    - name: Run network drift pipeline
+      ansible.builtin.command:
+        cmd: "{{ drift_python }} {{ drift_script }} {{ _drift_args | trim }}"
+        chdir: "{{ playbook_dir }}"
+      environment:
+        PYTHONPATH: "{{ playbook_dir }}"
+        PYTHONUNBUFFERED: "1"
+      register: _drift_result
+      ignore_errors: true
+
+    - name: Save full output to log file
+      ansible.builtin.copy:
+        content: |
+          ============================================================
+          Network Drift Manager - Run Log
+          ============================================================
+          Timestamp  : {{ lookup('pipe', 'date --iso-8601=seconds') }}
+          Project    : {{ playbook_dir }}
+          Device     : {{ device_name }}
+          Mode       : {{ 'APPLY' if pipeline_apply | bool else 'DRY-RUN' }}
+          Exit code  : {{ _drift_result.rc }}
+
+          --- STDOUT -------------------------------------------------
+          {{ _drift_result.stdout | default('(no output)') }}
+
+          --- STDERR -------------------------------------------------
+          {{ _drift_result.stderr | default('(no errors)') }}
+        dest: "{{ drift_log_file }}"
+        mode: "0644"
+
+    - name: Show pipeline output
+      ansible.builtin.debug:
+        msg: "{{ _drift_result.stdout_lines }}"
+      when:
+        - _drift_result.stdout_lines is defined
+        - _drift_result.stdout_lines | length > 0
+
+    - name: Show errors from stderr (if any)
+      ansible.builtin.debug:
+        msg: "{{ _drift_result.stderr_lines }}"
+      when:
+        - _drift_result.stderr_lines is defined
+        - _drift_result.stderr_lines | length > 0
+
+    - name: Log file location
+      ansible.builtin.debug:
+        msg: "Full output saved to: {{ drift_log_file }}"
+
+    # -----------------------------------------------------------------
+    # Extract the final PipelineResponse JSON and expose it as a Job
+    # artifact via set_stats, so an EDA rulebook or a downstream
+    # Workflow Job Template node can consume the structured drift
+    # result directly from the job's extra_vars.
+    #
+    # run_pipeline.py prints this as a single, marker-prefixed, compact
+    # JSON line ("PIPELINE_JSON_RESULT={...}") specifically so it can be
+    # found reliably here without having to slice the multi-line
+    # pretty-printed JSON also present in stdout.
+    # -----------------------------------------------------------------
+    - name: Locate the marker line containing the compact JSON result
+      ansible.builtin.set_fact:
+        _drift_json_line: >-
+          {{
+            (_drift_result.stdout_lines
+              | select('match', '^PIPELINE_JSON_RESULT=')
+              | list)
+          }}
+      when:
+        - _drift_result.rc == 0
+        - _drift_result.stdout_lines is defined
+      ignore_errors: true
+
+    - name: Extract final pipeline JSON result
+      ansible.builtin.set_fact:
+        _drift_json: "{{ (_drift_json_line[0] | regex_replace('^PIPELINE_JSON_RESULT=', '')) | from_json }}"
+      when:
+        - _drift_json_line is defined
+        - _drift_json_line | length > 0
+      ignore_errors: true
+
+    - name: Expose pipeline result as a job artifact (set_stats)
+      ansible.builtin.set_stats:
+        data:
+          network_drift_result: "{{ _drift_json }}"
+        aggregate: false
+      when: _drift_json is defined
+
+    - name: Fail playbook if the pipeline reported an error
+      ansible.builtin.fail:
+        msg: >-
+          Network Drift Manager exited with code {{ _drift_result.rc }}.
+          Check the log for details: {{ drift_log_file }}
+      when: _drift_result.rc != 0

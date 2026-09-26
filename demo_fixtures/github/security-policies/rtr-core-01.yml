@@ -1,0 +1,15 @@
+# Source of truth for SECURITY settings of rtr-core-01.
+# Lives in GitHub — NetBox intentionally does not model these attributes.
+ssh_access_list:
+  - 10.10.0.0/24
+  - 10.20.0.0/24
+aaa_servers:
+  - 10.10.0.10
+  - 10.10.0.11
+radius_servers:
+  - 10.10.0.20
+acl_rules:
+  - permit tcp any host 10.10.0.1 eq 22
+  - deny ip any any log
+snmp_community: "REDACTED_RO_v2c"
+login_banner: "Authorized access only. All activity is monitored."

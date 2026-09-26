@@ -1,0 +1,36 @@
+{
+  "rtr-core-01": {
+    "name": "rtr-core-01",
+    "id": 101,
+    "status": {"value": "active", "label": "Active"},
+    "site": {"name": "dc-east-1"},
+    "device_role": {"name": "core-router"},
+    "platform": {"name": "ios-xe"},
+    "serial": "FTX2011A9Z",
+    "primary_ip4": {"address": "10.10.0.1/32"},
+    "interfaces": ["Gi0/0", "Gi0/1", "Gi0/2", "Gi0/3", "Lo0"],
+    "custom_fields": {
+      "dns_servers": ["10.10.0.53", "10.10.0.54"],
+      "ntp_servers": ["10.10.0.123"],
+      "vlan": 10,
+      "mtu": 1500
+    }
+  },
+  "sw-access-12": {
+    "name": "sw-access-12",
+    "id": 212,
+    "status": {"value": "active", "label": "Active"},
+    "site": {"name": "dc-east-1"},
+    "device_role": {"name": "access-switch"},
+    "platform": {"name": "nxos"},
+    "serial": "SW12X400A1",
+    "primary_ip4": {"address": "10.10.5.12/32"},
+    "interfaces": ["Eth1/1", "Eth1/2", "Eth1/3", "Eth1/4", "Eth1/5", "Eth1/6"],
+    "custom_fields": {
+      "dns_servers": ["10.10.0.53", "10.10.0.54"],
+      "ntp_servers": ["10.10.0.123"],
+      "vlan": 50,
+      "mtu": 1500
+    }
+  }
+}

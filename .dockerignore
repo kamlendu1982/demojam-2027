@@ -1,0 +1,12 @@
+.git/
+venv/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+*.log
+.env
+mcp-netbox/tests/
+mcp-netbox/.pytest_cache/
+mcp-netbox/__pycache__/

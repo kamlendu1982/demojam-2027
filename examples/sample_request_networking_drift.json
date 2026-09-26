@@ -1,0 +1,8 @@
+{
+  "device": "rtr-core-01",
+  "attributes": {
+    "dns_servers": ["10.10.0.53"],
+    "num_interfaces": 5,
+    "vlan": 10
+  }
+}

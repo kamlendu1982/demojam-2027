@@ -1,0 +1,61 @@
+# ─────────────────────────────────────────────────────────────────────────
+# Deterministic attribute classification map.
+#
+# Agent 1 (DeviceDriftDetector) uses this file to decide, for every
+# attribute it is given, whether that attribute is:
+#
+#   - a SECURITY setting  -> governed by GitHub (checked later by Agent 3)
+#   - a NETWORKING setting -> governed by NetBox (checked directly by Agent 1)
+#
+# Any attribute NOT listed here falls through to an LLM classification call
+# (see src/llm.py::classify_attribute) as a fallback. Adding it here is
+# always preferred because it keeps the workflow deterministic and free.
+# ─────────────────────────────────────────────────────────────────────────
+
+security_attributes:
+  - ssh_access_list
+  - aaa_servers
+  - radius_servers
+  - tacacs_servers
+  - acl_rules
+  - firewall_rules
+  - password_policy
+  - snmp_community
+  - login_banner
+  - ntp_auth_key
+  - enable_secret_policy
+  - management_acl
+  - local_users
+
+# networking_attributes maps an attribute name to the dotted path used to
+# pull its "source of truth" value out of the NetBox device object returned
+# by the NetBox MCP server. Dotted paths support:
+#   - simple keys:            "site.name"
+#   - list length:             "len(interfaces)"
+#   - custom fields:           "custom_fields.dns_servers"
+#   - config context values:   "config_context.ntp_servers"
+networking_attributes:
+  dns_servers:
+    netbox_path: custom_fields.dns_servers
+  ntp_servers:
+    netbox_path: custom_fields.ntp_servers
+  num_interfaces:
+    netbox_path: "len(interfaces)"
+  interfaces:
+    netbox_path: interfaces
+  primary_ip:
+    netbox_path: primary_ip4.address
+  vlan:
+    netbox_path: custom_fields.vlan
+  mtu:
+    netbox_path: custom_fields.mtu
+  site:
+    netbox_path: site.name
+  role:
+    netbox_path: device_role.name
+  platform:
+    netbox_path: platform.name
+  serial:
+    netbox_path: serial
+  status:
+    netbox_path: status.value

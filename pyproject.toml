@@ -1,0 +1,11 @@
+[project]
+name = "network-drift-manager"
+version = "0.1.0"
+description = "Deterministic multi-agent workflow for network device drift detection and remediation using NetBox and GitHub as sources of truth, AAP for remediation, and a MaaS LLM for bounded reasoning."
+requires-python = ">=3.11"
+readme = "README.md"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+asyncio_mode = "auto"
+testpaths = ["tests"]

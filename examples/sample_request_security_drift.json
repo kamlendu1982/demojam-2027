@@ -1,0 +1,8 @@
+{
+  "device": "rtr-core-01",
+  "attributes": {
+    "ssh_access_list": ["0.0.0.0/0"],
+    "snmp_community": "public",
+    "dns_servers": ["10.10.0.53", "10.10.0.54"]
+  }
+}

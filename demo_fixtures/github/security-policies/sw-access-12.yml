@@ -1,0 +1,8 @@
+# Source of truth for SECURITY settings of sw-access-12.
+ssh_access_list:
+  - 10.10.5.0/24
+aaa_servers:
+  - 10.10.0.10
+  - 10.10.0.11
+snmp_community: "REDACTED_RO_v2c"
+login_banner: "Authorized access only. All activity is monitored."
