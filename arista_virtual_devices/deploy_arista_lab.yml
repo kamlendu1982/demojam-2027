@@ -23,26 +23,31 @@
       when: clab_check.rc != 0
       changed_when: true
 
-    - name: Copy Arista tar file to target VM
-      ansible.builtin.copy:
-        src: "{{ playbook_dir }}/files/{{ ceos_tar_name }}"
-        dest: "/tmp/{{ ceos_tar_name }}"
-        mode: "0644"
-
     - name: Check if Arista image already exists in Docker
       ansible.builtin.command: "docker images -q {{ ceos_image_repo }}:{{ ceos_image_tag }}"
       register: docker_image_check
       changed_when: false
 
+    - name: Verify Arista tar file is present on target VM
+      ansible.builtin.stat:
+        path: "{{ ceos_tar_remote_path }}"
+      register: ceos_tar_stat
+      when: docker_image_check.stdout == ""
+
+    - name: Fail if Arista tar file is missing on target VM
+      ansible.builtin.fail:
+        msg: >-
+          Arista tar file not found at {{ ceos_tar_remote_path }} on {{ inventory_hostname }}.
+          This file is not shipped with the Ansible project (500+ MB, too large for git) -
+          copy it to that path on the target VM before running this playbook.
+      when:
+        - docker_image_check.stdout == ""
+        - not ceos_tar_stat.stat.exists
+
     - name: Import Arista image into Docker
-      ansible.builtin.command: "docker import /tmp/{{ ceos_tar_name }} {{ ceos_image_repo }}:{{ ceos_image_tag }}"
+      ansible.builtin.command: "docker import {{ ceos_tar_remote_path }} {{ ceos_image_repo }}:{{ ceos_image_tag }}"
       when: docker_image_check.stdout == ""
       changed_when: true
-
-    - name: Remove temporary tar file to save space
-      ansible.builtin.file:
-        path: "/tmp/{{ ceos_tar_name }}"
-        state: absent
 
     - name: Create lab directory
       ansible.builtin.file:

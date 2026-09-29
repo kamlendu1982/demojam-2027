@@ -12,5 +12,11 @@ ceos_tar_name: "cEOS64-lab-4.32.0F.tar.xz"
 ceos_image_repo: "ceos"
 ceos_image_tag: "4.32.0F"
 
+# The Arista cEOS tar file is 500+ MB, so it is intentionally NOT stored in
+# this git repo / Ansible project. It must already exist at this path on each
+# target VM (pre-staged manually, via a golden image, etc.) before this
+# playbook runs - the playbook will fail with a clear error if it's missing.
+ceos_tar_remote_path: "/home/ubuntu/{{ ceos_tar_name }}"
+
 # Directory on the target VM where the lab will be stored
 lab_dir: "/opt/arista-lab"

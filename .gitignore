@@ -10,3 +10,7 @@ dist/
 build/
 *.log
 .DS_Store
+
+# Large binary lab images - too big for git, staged directly on target VMs
+arista_virtual_devices/files/*
+cEOS64-lab-4.32.0F.tar.xz
