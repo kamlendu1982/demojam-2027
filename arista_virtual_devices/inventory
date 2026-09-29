@@ -1,0 +1,9 @@
+---
+all:
+  hosts:
+    # Replace with your actual Ubuntu VM IP address
+    ubuntu-lab-host:
+      ansible_host: 172.31.8.57
+      ansible_user: ubuntu
+      # If using SSH keys, uncomment and set the path:
+      # ansible_ssh_private_key_file: ~/.ssh/id_rsa

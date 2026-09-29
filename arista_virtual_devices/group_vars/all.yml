@@ -1,0 +1,16 @@
+---
+# Variables for the "all" group, applied to every host targeted by
+# deploy_arista_lab.yml (hosts: all).
+#
+# Previously these lived inline in the playbook's `vars:` block; they were
+# moved here so they can be overridden per environment without editing the
+# playbook (e.g. via group_vars/<group>.yml, host_vars/<host>.yml, or
+# -e on the command line).
+
+# UPDATE THESE VARIABLES TO MATCH YOUR DOWNLOADED ARISTA FILE
+ceos_tar_name: "cEOS64-lab-4.32.0F.tar.xz"
+ceos_image_repo: "ceos"
+ceos_image_tag: "4.32.0F"
+
+# Directory on the target VM where the lab will be stored
+lab_dir: "/opt/arista-lab"

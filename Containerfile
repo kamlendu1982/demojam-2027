@@ -11,6 +11,30 @@
 # noted in README.md as required for aap-drift-manager-ee (add `openai`,
 # pin `mcp<2.0.0`) - see requirements.txt for details.
 #
+# WHY THERE'S NO `microdnf install` STEP HERE
+# ============================================
+# An earlier version of this file ran `microdnf install -y python3.12
+# git gcc ...`, mirroring aap-drift-manager/Containerfile. That FAILS on
+# any host that isn't an actively-subscribed, subscription-manager-
+# registered RHEL system (confirmed here: even with real entitlement
+# certs manually bind-mounted at /etc/pki/entitlement + /etc/rhsm, dnf
+# still gets HTTP 403 from cdn.redhat.com/.../rhel-9-for-x86_64-baseos-rpms
+# - `podman login registry.redhat.io` only authorizes pulling the base
+# IMAGE, it does NOT grant RPM content-repo access). Turns out it's also
+# unnecessary: `ee-supported-rhel9:latest` already ships everything that
+# install step was trying to add:
+#   python3.12 (3.12.14), python3.12-pip, git (2.52.0), openssh-clients
+#   (ssh-keyscan), python3.12-cffi/cryptography (prebuilt, no compiler
+#   needed). None of this project's requirements.txt packages need a
+#   C compiler at install time either - they all ship prebuilt manylinux
+#   wheels (verified: `pip install -r requirements.txt` succeeds against
+#   this exact base image with zero RPM installs).
+# If a future dependency genuinely needs an RPM that isn't already in
+# the image, you'll need real RHEL entitlements (subscription-manager
+# register on the actual build host, or bind-mount valid entitlement
+# certs from one) - plain `podman login registry.redhat.io` is not
+# enough.
+#
 # BUILD
 #   podman login registry.redhat.io        # required for the base image
 #   podman build -t demojam-2027-ee:latest -f Containerfile .
@@ -27,36 +51,13 @@ LABEL name="demojam-2027-ee" \
 USER root
 
 # ---------------------------------------------------------
-# System packages
-# ---------------------------------------------------------
-# python3.12 / python3.12-devel / python3.12-pip : agent code targets 3.12
-# git / openssh-clients                          : mcp-netbox / future MCP
-#                                                    stdio servers may need it
-# gcc / gcc-c++ / libffi-devel / openssl-devel / make
-#                                                 : compile native wheels
-#                                                    (e.g. pydantic-core)
-# ---------------------------------------------------------
-RUN microdnf install -y \
-        python3.12 \
-        python3.12-devel \
-        python3.12-pip \
-        git \
-        openssh-clients \
-        gcc \
-        gcc-c++ \
-        libffi-devel \
-        openssl-devel \
-        make \
-    && microdnf clean all \
-    && rm -rf /var/cache/dnf
-
-# ---------------------------------------------------------
 # Python dependencies
 # ---------------------------------------------------------
-# Copy only requirements.txt (not source code) to keep image lean.
-# Covers both the main pipeline AND the embedded mcp-netbox server
-# (mcp, httpx are shared dependencies - mcp-netbox has no extra deps
-# beyond what's already listed here).
+# python3.12 + pip are already present in this base image - no microdnf
+# install needed (see header comment). Copy only requirements.txt (not
+# source code) to keep image lean. Covers both the main pipeline AND the
+# embedded mcp-netbox server (mcp, httpx are shared deps - mcp-netbox has
+# no extra deps beyond what's already listed here).
 # ---------------------------------------------------------
 COPY requirements.txt /tmp/requirements.txt
 
@@ -65,8 +66,11 @@ RUN python3.12 -m pip install --no-cache-dir --upgrade pip setuptools wheel \
     && rm /tmp/requirements.txt
 
 # ---------------------------------------------------------
-# SSH known hosts (harmless to keep even though this project doesn't
-# clone git repos at runtime today - GitHub is reached over MCP, not git)
+# SSH known hosts
+# ---------------------------------------------------------
+# ssh-keyscan comes from openssh-clients, already present in the base
+# image. Harmless to keep even though this project doesn't clone git
+# repos at runtime today - GitHub is reached over MCP, not git.
 # ---------------------------------------------------------
 RUN mkdir -p /etc/ssh \
     && ssh-keyscan github.com >> /etc/ssh/ssh_known_hosts 2>/dev/null || true

@@ -1,0 +1,5 @@
+{
+  "device_name": "rtr-core-01",
+  "device_attributes": {"snmp_community": "public"},
+  "pipeline_apply": false
+}

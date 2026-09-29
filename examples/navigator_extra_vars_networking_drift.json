@@ -1,0 +1,5 @@
+{
+  "device_name": "rtr-core-01",
+  "device_attributes": {"dns_servers": ["10.10.0.53"]},
+  "pipeline_apply": false
+}

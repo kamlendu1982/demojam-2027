@@ -1,0 +1,81 @@
+---
+- name: Deploy Arista cEOS Lab using Containerlab
+  hosts: all
+  become: true
+  # Variables (ceos_tar_name, ceos_image_repo, ceos_image_tag, lab_dir) now
+  # live in group_vars/all.yml instead of inline here.
+
+  tasks:
+    - name: Ensure Docker is installed (Ubuntu)
+      ansible.builtin.apt:
+        name: docker.io
+        state: present
+        update_cache: true
+
+    - name: Check if Containerlab is already installed
+      ansible.builtin.command: which containerlab
+      register: clab_check
+      ignore_errors: true
+      changed_when: false
+
+    - name: Install Containerlab
+      ansible.builtin.shell: bash -c "$(curl -sL https://get.containerlab.dev)"
+      when: clab_check.rc != 0
+      changed_when: true
+
+    - name: Copy Arista tar file to target VM
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/files/{{ ceos_tar_name }}"
+        dest: "/tmp/{{ ceos_tar_name }}"
+        mode: "0644"
+
+    - name: Check if Arista image already exists in Docker
+      ansible.builtin.command: "docker images -q {{ ceos_image_repo }}:{{ ceos_image_tag }}"
+      register: docker_image_check
+      changed_when: false
+
+    - name: Import Arista image into Docker
+      ansible.builtin.command: "docker import /tmp/{{ ceos_tar_name }} {{ ceos_image_repo }}:{{ ceos_image_tag }}"
+      when: docker_image_check.stdout == ""
+      changed_when: true
+
+    - name: Remove temporary tar file to save space
+      ansible.builtin.file:
+        path: "/tmp/{{ ceos_tar_name }}"
+        state: absent
+
+    - name: Create lab directory
+      ansible.builtin.file:
+        path: "{{ lab_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Generate Containerlab topology file
+      ansible.builtin.copy:
+        dest: "{{ lab_dir }}/lab.clab.yml"
+        mode: "0644"
+        content: |
+          name: ansible-lab
+
+          topology:
+            kinds:
+              arista_ceos:
+                image: {{ ceos_image_repo }}:{{ ceos_image_tag }}
+
+            nodes:
+              switch1:
+                kind: arista_ceos
+              switch2:
+                kind: arista_ceos
+
+            links:
+              - endpoints: ["switch1:eth1", "switch2:eth1"]
+
+    - name: Deploy Containerlab topology
+      ansible.builtin.command: "containerlab deploy -t {{ lab_dir }}/lab.clab.yml"
+      register: deploy_output
+      changed_when: "'Deploying' in deploy_output.stdout or 'Creating' in deploy_output.stdout"
+
+    - name: Show Deployment Results
+      ansible.builtin.debug:
+        msg: "Lab deployed successfully. You can run 'sudo containerlab inspect -t {{ lab_dir }}/lab.clab.yml' on the host to see the IPs."
