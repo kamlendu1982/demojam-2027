@@ -26,7 +26,7 @@ NetBox is used as the Source of Truth for these two devices, registered by
 |---|---|
 | `deploy_arista_lab.yml` | Installs Docker + Containerlab, imports the Arista cEOS image, generates a Containerlab topology file, and deploys it. |
 | `inventory` | Static inventory with the one deployment target host (`ubuntu-lab-host`). |
-| `group_vars/all.yml` | Configurable variables for `deploy_arista_lab.yml` (image names/tags, file paths). Applies to every host in the `all` group. |
+| `host_vars/ubuntu-lab-host.yml` | Configurable variables for `deploy_arista_lab.yml` (image names/tags, file paths). Scoped to that specific hostname so it can't leak into `netbox_devices_inventory`'s hosts. |
 | `files/` | **Intentionally empty** — see [Staging the Arista image](#1-stage-the-arista-ceos-image-on-the-target-vm-one-time). Ignored by git (`.gitignore`) so a 500+ MB tar never gets committed by accident. |
 | `netbox_onboard_switches.yml` | Registers `switch1`/`switch2` as Devices in NetBox (SOT). Idempotent - safe to re-run. |
 | `netbox_devices_inventory` | Separate inventory listing the switches (name + management IP) to onboard into NetBox. Kept apart from `inventory` on purpose (see note in that file). |
@@ -77,7 +77,7 @@ all:
 
 ### 3. Review/override variables (optional)
 
-All variables live in `group_vars/all.yml`:
+All variables live in `host_vars/ubuntu-lab-host.yml`:
 
 | Variable | Default | Description |
 |---|---|---|
@@ -104,7 +104,7 @@ values.
    with privilege escalation (`become`) enabled — the playbook installs
    packages and writes to `/opt`.
 4. **Job Template**: Playbook = `arista_virtual_devices/deploy_arista_lab.yml`.
-5. Launch. Override any `group_vars` values via **Extra Variables** or a
+5. Launch. Override any `host_vars` values via **Extra Variables** or a
    survey if needed.
 
 **Option B — local testing (`ansible-navigator` / `ansible-playbook`):**
@@ -216,5 +216,5 @@ assumed — NetBox 4.x renamed the Device API's role field from `device_role`
 ## Roadmap
 
 - Possibly drive `deploy_arista_lab.yml`'s variables (image name/tag, device
-  names) from NetBox instead of `group_vars/all.yml`, now that NetBox holds
+  names) from NetBox instead of `host_vars/ubuntu-lab-host.yml`, now that NetBox holds
   the switch inventory as the Source of Truth.

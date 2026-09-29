@@ -3,7 +3,9 @@
   hosts: all
   become: true
   # Variables (ceos_tar_name, ceos_image_repo, ceos_image_tag, lab_dir) now
-  # live in group_vars/all.yml instead of inline here.
+  # live in host_vars/ubuntu-lab-host.yml instead of inline here. (Scoped to
+  # this specific host, not group_vars/all, so they don't leak into other
+  # inventories in this directory - e.g. netbox_devices_inventory.)
 
   tasks:
     - name: Ensure Docker is installed (Ubuntu)

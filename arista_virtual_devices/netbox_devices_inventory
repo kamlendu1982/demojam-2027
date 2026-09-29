@@ -11,6 +11,17 @@
 all:
   children:
     arista_switches:
+      vars:
+        # 172.20.20.0/24 is Containerlab's internal management bridge on the
+        # Ubuntu VM (172.31.8.57) - it isn't routable from outside that VM,
+        # so any SSH connection to these switches must jump through it.
+        #
+        # NOT required by netbox_onboard_switches.yml - that playbook runs
+        # on localhost and only reads ansible_host below to call the NetBox
+        # API, it never connects to the switches themselves. This is here
+        # for future playbooks that do need to reach the switches directly
+        # (e.g. via arista.eos / eAPI / SSH).
+        ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o ProxyJump=ubuntu@172.31.8.57'
       hosts:
         # Replace with the actual management IPs assigned by Containerlab.
         # Find them with: sudo containerlab inspect -t /opt/arista-lab/lab.clab.yml

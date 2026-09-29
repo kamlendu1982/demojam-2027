@@ -1,11 +1,16 @@
 ---
-# Variables for the "all" group, applied to every host targeted by
-# deploy_arista_lab.yml (hosts: all).
+# Variables for the ubuntu-lab-host, targeted by deploy_arista_lab.yml
+# (hosts: all - the only host in ./inventory).
 #
 # Previously these lived inline in the playbook's `vars:` block; they were
 # moved here so they can be overridden per environment without editing the
-# playbook (e.g. via group_vars/<group>.yml, host_vars/<host>.yml, or
-# -e on the command line).
+# playbook (e.g. host_vars/<other-host>.yml, or -e on the command line).
+#
+# Deliberately host_vars (scoped to this exact hostname) rather than
+# group_vars/all.yml: this directory also holds netbox_devices_inventory,
+# whose hosts (switch1/switch2) are likewise members of the implicit "all"
+# group in that inventory - group_vars/all.yml would have leaked these
+# Ubuntu-VM-specific values into their hostvars too.
 
 # UPDATE THESE VARIABLES TO MATCH YOUR DOWNLOADED ARISTA FILE
 ceos_tar_name: "cEOS64-lab-4.32.0F.tar.xz"
