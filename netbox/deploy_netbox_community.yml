@@ -1,0 +1,70 @@
+---
+- name: Deploy NetBox Community using Podman on RHEL
+  hosts: all
+  become: true
+  vars:
+    netbox_clone_dir: /opt/netbox-docker
+    netbox_port: 8000
+
+  tasks:
+    - name: Ensure EPEL repository is enabled (provides podman-compose)
+      ansible.builtin.dnf:
+        name: "https://dl.fedoraproject.org/pub/epel/epel-release-latest-{{ ansible_distribution_major_version }}.noarch.rpm"
+        state: present
+        disable_gpg_check: true
+
+    - name: Install Podman, Podman-Compose, and Git
+      ansible.builtin.dnf:
+        name:
+          - podman
+          - podman-compose
+          - git
+        state: present
+
+    - name: Clone NetBox Docker community repository
+      ansible.builtin.git:
+        repo: 'https://github.com/netbox-community/netbox-docker.git'
+        dest: "{{ netbox_clone_dir }}"
+        version: release
+        force: true
+
+    - name: Create docker-compose.override.yml to map web ports
+      ansible.builtin.copy:
+        dest: "{{ netbox_clone_dir }}/docker-compose.override.yml"
+        content: |
+          version: '3.4'
+          services:
+            netbox:
+              ports:
+                - "{{ netbox_port }}:8080"
+        mode: '0644'
+
+    - name: Pull container images via podman-compose
+      ansible.builtin.command:
+        cmd: podman-compose pull
+      args:
+        chdir: "{{ netbox_clone_dir }}"
+      register: pull_result
+      changed_when: "'Extracting' in pull_result.stdout or 'Downloaded' in pull_result.stdout"
+
+    - name: Start NetBox stack using podman-compose
+      ansible.builtin.command:
+        cmd: podman-compose up -d
+      args:
+        chdir: "{{ netbox_clone_dir }}"
+      register: up_result
+      changed_when: "'Created' in up_result.stdout or 'Started' in up_result.stdout"
+
+    - name: Wait for NetBox web service to become responsive
+      ansible.builtin.wait_for:
+        port: "{{ netbox_port }}"
+        delay: 15
+        timeout: 300
+
+    - name: Display post-installation instructions
+      ansible.builtin.debug:
+        msg:
+          - "NetBox is successfully running on Podman!"
+          - "You can access the UI at http://<VM-IP>:{{ netbox_port }}"
+          - "To create the admin user, log into the RHEL VM and run:"
+          - "cd {{ netbox_clone_dir }} && sudo podman-compose exec netbox /opt/netbox/netbox/manage.py createsuperuser"
