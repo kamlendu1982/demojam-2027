@@ -1,0 +1,187 @@
+---
+# Registers the Arista virtual switches (switch1, switch2 - deployed by
+# deploy_arista_lab.yml) as Devices in NetBox, using NetBox as the Source of
+# Truth.
+#
+# Runs entirely against localhost/the AAP execution node - it never connects
+# to the switches themselves, it only reads their name/IP from the
+# "arista_switches" group of whichever inventory is attached to this job
+# (see netbox_devices_inventory) and pushes that into the NetBox REST API.
+#
+# All NetBox objects are created idempotently (checked via GET before every
+# POST), so this is safe to re-run, e.g. after adding a third switch.
+#
+# Required at runtime (do NOT hardcode in this file or commit to git):
+#   -e netbox_token=<your NetBox API token>
+# In AAP, supply this via a Job Template survey or a Custom Credential
+# injected as an extra var, not as a plaintext Extra Variable.
+
+- name: Onboard Arista virtual switches into NetBox
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    netbox_url: "http://ec2-18-226-224-180.us-east-2.compute.amazonaws.com:8000"
+    netbox_validate_certs: true
+    netbox_switch_group: "arista_switches"
+
+    # NetBox objects these switches will be associated with - created
+    # automatically if they don't already exist.
+    netbox_manufacturer: "Arista"
+    netbox_device_type: "cEOS"
+    netbox_device_role: "Network Switch"
+    netbox_site: "Containerlab"
+    netbox_mgmt_interface: "Management1"
+    netbox_device_status: "active"
+
+  tasks:
+    - name: Fail early if NetBox API token was not supplied
+      ansible.builtin.fail:
+        msg: >-
+          netbox_token is required. Pass it via -e netbox_token=... or an
+          AAP survey/credential - never commit it to git or hardcode it here.
+      when: netbox_token is not defined or netbox_token | length == 0
+
+    - name: Fail early if no switches are defined in the inventory group
+      ansible.builtin.fail:
+        msg: "No hosts found in inventory group '{{ netbox_switch_group }}'."
+      when: groups[netbox_switch_group] is not defined or groups[netbox_switch_group] | length == 0
+
+    - name: Set common NetBox API request headers
+      ansible.builtin.set_fact:
+        netbox_headers:
+          Authorization: "Token {{ netbox_token }}"
+          Content-Type: "application/json"
+
+    # ---- Manufacturer (Arista) ----
+    - name: Check if manufacturer already exists in NetBox
+      ansible.builtin.uri:
+        url: "{{ netbox_url }}/api/dcim/manufacturers/?name={{ netbox_manufacturer | urlencode }}"
+        headers: "{{ netbox_headers }}"
+        validate_certs: "{{ netbox_validate_certs }}"
+        status_code: 200
+      register: manufacturer_lookup
+
+    - name: Create manufacturer in NetBox
+      ansible.builtin.uri:
+        url: "{{ netbox_url }}/api/dcim/manufacturers/"
+        method: POST
+        headers: "{{ netbox_headers }}"
+        validate_certs: "{{ netbox_validate_certs }}"
+        body_format: json
+        body:
+          name: "{{ netbox_manufacturer }}"
+          slug: "{{ netbox_manufacturer | lower | regex_replace('[^a-z0-9]+', '-') }}"
+        status_code: 201
+      register: manufacturer_create
+      when: manufacturer_lookup.json.count == 0
+
+    - name: Determine manufacturer ID
+      ansible.builtin.set_fact:
+        netbox_manufacturer_id: >-
+          {{ manufacturer_lookup.json.results[0].id if manufacturer_lookup.json.count > 0
+             else manufacturer_create.json.id }}
+
+    # ---- Device Type (cEOS) ----
+    - name: Check if device type already exists in NetBox
+      ansible.builtin.uri:
+        url: "{{ netbox_url }}/api/dcim/device-types/?model={{ netbox_device_type | urlencode }}"
+        headers: "{{ netbox_headers }}"
+        validate_certs: "{{ netbox_validate_certs }}"
+        status_code: 200
+      register: device_type_lookup
+
+    - name: Create device type in NetBox
+      ansible.builtin.uri:
+        url: "{{ netbox_url }}/api/dcim/device-types/"
+        method: POST
+        headers: "{{ netbox_headers }}"
+        validate_certs: "{{ netbox_validate_certs }}"
+        body_format: json
+        body:
+          manufacturer: "{{ netbox_manufacturer_id }}"
+          model: "{{ netbox_device_type }}"
+          slug: "{{ netbox_device_type | lower | regex_replace('[^a-z0-9]+', '-') }}"
+        status_code: 201
+      register: device_type_create
+      when: device_type_lookup.json.count == 0
+
+    - name: Determine device type ID
+      ansible.builtin.set_fact:
+        netbox_device_type_id: >-
+          {{ device_type_lookup.json.results[0].id if device_type_lookup.json.count > 0
+             else device_type_create.json.id }}
+
+    # ---- Device Role (Network Switch) ----
+    - name: Check if device role already exists in NetBox
+      ansible.builtin.uri:
+        url: "{{ netbox_url }}/api/dcim/device-roles/?name={{ netbox_device_role | urlencode }}"
+        headers: "{{ netbox_headers }}"
+        validate_certs: "{{ netbox_validate_certs }}"
+        status_code: 200
+      register: device_role_lookup
+
+    - name: Create device role in NetBox
+      ansible.builtin.uri:
+        url: "{{ netbox_url }}/api/dcim/device-roles/"
+        method: POST
+        headers: "{{ netbox_headers }}"
+        validate_certs: "{{ netbox_validate_certs }}"
+        body_format: json
+        body:
+          name: "{{ netbox_device_role }}"
+          slug: "{{ netbox_device_role | lower | regex_replace('[^a-z0-9]+', '-') }}"
+          color: "2196f3"
+        status_code: 201
+      register: device_role_create
+      when: device_role_lookup.json.count == 0
+
+    - name: Determine device role ID
+      ansible.builtin.set_fact:
+        netbox_device_role_id: >-
+          {{ device_role_lookup.json.results[0].id if device_role_lookup.json.count > 0
+             else device_role_create.json.id }}
+
+    # ---- Site (Containerlab) ----
+    - name: Check if site already exists in NetBox
+      ansible.builtin.uri:
+        url: "{{ netbox_url }}/api/dcim/sites/?name={{ netbox_site | urlencode }}"
+        headers: "{{ netbox_headers }}"
+        validate_certs: "{{ netbox_validate_certs }}"
+        status_code: 200
+      register: site_lookup
+
+    - name: Create site in NetBox
+      ansible.builtin.uri:
+        url: "{{ netbox_url }}/api/dcim/sites/"
+        method: POST
+        headers: "{{ netbox_headers }}"
+        validate_certs: "{{ netbox_validate_certs }}"
+        body_format: json
+        body:
+          name: "{{ netbox_site }}"
+          slug: "{{ netbox_site | lower | regex_replace('[^a-z0-9]+', '-') }}"
+          status: active
+        status_code: 201
+      register: site_create
+      when: site_lookup.json.count == 0
+
+    - name: Determine site ID
+      ansible.builtin.set_fact:
+        netbox_site_id: >-
+          {{ site_lookup.json.results[0].id if site_lookup.json.count > 0
+             else site_create.json.id }}
+
+    # ---- One Device + Interface + IP per switch in inventory ----
+    - name: Onboard each Arista switch into NetBox
+      ansible.builtin.include_tasks: tasks/onboard_one_switch.yml
+      loop: "{{ groups[netbox_switch_group] }}"
+      loop_control:
+        loop_var: switch_name
+
+    - name: Show onboarding summary
+      ansible.builtin.debug:
+        msg: >-
+          Onboarded {{ groups[netbox_switch_group] | length }} switch(es) into NetBox
+          at {{ netbox_url }}: {{ groups[netbox_switch_group] | join(', ') }}.

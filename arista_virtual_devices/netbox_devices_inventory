@@ -1,0 +1,20 @@
+---
+# Inventory of Arista virtual switches to be registered in NetBox.
+#
+# Kept separate from ./inventory (used by deploy_arista_lab.yml) on purpose:
+# that inventory's playbook targets `hosts: all` to SSH into the Ubuntu VM
+# and install Docker/Containerlab - switch1/switch2 are not SSH-reachable
+# hosts and must never be swept into that play.
+#
+# Use this inventory for the "Onboard Arista Switches to NetBox" AAP Job
+# Template (playbook: netbox_onboard_switches.yml).
+all:
+  children:
+    arista_switches:
+      hosts:
+        # Replace with the actual management IPs assigned by Containerlab.
+        # Find them with: sudo containerlab inspect -t /opt/arista-lab/lab.clab.yml
+        switch1:
+          ansible_host: 172.20.20.3
+        switch2:
+          ansible_host: 172.20.20.2

@@ -17,17 +17,20 @@ and from an AAP Job Template.
                                   └───────────────────────────────────────────┘
 ```
 
-NetBox is planned as the Source of Truth for these two devices; that
-integration is not part of this playbook yet (see [Roadmap](#roadmap)).
+NetBox is used as the Source of Truth for these two devices, registered by
+`netbox_onboard_switches.yml` (see [NetBox registration](#netbox-registration)).
 
 ## Contents
 
 | Path | Purpose |
 |---|---|
-| `deploy_arista_lab.yml` | The playbook. Installs Docker + Containerlab, imports the Arista cEOS image, generates a Containerlab topology file, and deploys it. |
-| `inventory` | Static inventory with the one target host (`ubuntu-lab-host`). |
-| `group_vars/all.yml` | All configurable variables (image names/tags, file paths). Applies to every host in the `all` group. |
+| `deploy_arista_lab.yml` | Installs Docker + Containerlab, imports the Arista cEOS image, generates a Containerlab topology file, and deploys it. |
+| `inventory` | Static inventory with the one deployment target host (`ubuntu-lab-host`). |
+| `group_vars/all.yml` | Configurable variables for `deploy_arista_lab.yml` (image names/tags, file paths). Applies to every host in the `all` group. |
 | `files/` | **Intentionally empty** — see [Staging the Arista image](#1-stage-the-arista-ceos-image-on-the-target-vm-one-time). Ignored by git (`.gitignore`) so a 500+ MB tar never gets committed by accident. |
+| `netbox_onboard_switches.yml` | Registers `switch1`/`switch2` as Devices in NetBox (SOT). Idempotent - safe to re-run. |
+| `netbox_devices_inventory` | Separate inventory listing the switches (name + management IP) to onboard into NetBox. Kept apart from `inventory` on purpose (see note in that file). |
+| `tasks/onboard_one_switch.yml` | Reusable per-switch task sequence (Device + Interface + IP) included in a loop by `netbox_onboard_switches.yml`. |
 
 ## Prerequisites
 
@@ -148,6 +151,56 @@ The playbook's final task also prints this inspect command in its output.
 9. **Deploy the topology** with `containerlab deploy`.
 10. **Print the inspect command** for the user to check IPs/status.
 
+## NetBox registration
+
+Once `switch1`/`switch2` are deployed and you know their management IPs
+(from `sudo containerlab inspect -t /opt/arista-lab/lab.clab.yml`),
+`netbox_onboard_switches.yml` registers them in NetBox as the Source of
+Truth. It's idempotent (safe to re-run) and self-bootstraps everything it
+needs on a fresh NetBox instance - Manufacturer (`Arista`), Device Type
+(`cEOS`), Device Role (`Network Switch`), and Site (`Containerlab`) - then
+creates a Device + management Interface + IP Address per switch, and sets
+that IP as the device's primary IPv4.
+
+**1. Update `netbox_devices_inventory` with the real switch IPs:**
+
+```yaml
+arista_switches:
+  hosts:
+    switch1:
+      ansible_host: <switch1 mgmt IP>
+    switch2:
+      ansible_host: <switch2 mgmt IP>
+```
+
+**2. Generate a NetBox API token** (NetBox UI → top-right profile icon →
+API Tokens → Add a token), then run:
+
+```bash
+cd arista_virtual_devices
+ansible-playbook -i netbox_devices_inventory netbox_onboard_switches.yml \
+  -e netbox_token='<your-netbox-api-token>'
+```
+
+Never commit the token or put it in a vars file — pass it via `-e`, or in
+AAP via a survey/credential.
+
+**3. AAP Job Template setup:**
+
+- **Inventory**: sync/import `netbox_devices_inventory` (contains the
+  `arista_switches` group) — a different Inventory than the one used for
+  `deploy_arista_lab.yml`, since these hosts aren't SSH targets.
+- **Credential**: none needed for SSH (the play runs against `localhost`);
+  instead add `netbox_token` as a survey variable or a custom credential
+  injected as an extra var.
+- **Job Template**: Playbook = `arista_virtual_devices/netbox_onboard_switches.yml`.
+
+All the NetBox object/field names used (`role` on Device, `assigned_object_type`/
+`assigned_object_id` on IP Address, etc.) were verified directly against this
+NetBox instance's live OpenAPI schema (NetBox Community v4.7.1) rather than
+assumed — NetBox 4.x renamed the Device API's role field from `device_role`
+(3.x) to `role`, which the playbook accounts for.
+
 ## Troubleshooting
 
 | Symptom | Cause / Fix |
@@ -157,10 +210,11 @@ The playbook's final task also prints this inspect command in its output.
 | `docker: permission denied` type errors | Ensure the play's `become: true` is honored (AAP credential must have privilege escalation enabled). |
 | SSH connection failures from AAP | Confirm the Machine credential's user/key matches `ansible_user` in inventory, and that the AAP execution node can reach `ansible_host`. |
 | Re-running doesn't re-import the image | Expected — `docker images -q` makes the import idempotent. Remove the image (`docker rmi ceos:4.32.0F`) to force re-import. |
+| `netbox_onboard_switches.yml` fails with "netbox_token is required" | Pass `-e netbox_token=...` (CLI) or set it via an AAP survey/credential — it's never hardcoded in the repo. |
+| `netbox_onboard_switches.yml` fails with a 403 from NetBox | The token is invalid/expired, or lacks write permission on `dcim`/`ipam`. Regenerate it in the NetBox UI. |
 
 ## Roadmap
 
-- Register `switch1`/`switch2` in NetBox as the Source of Truth (device
-  type, management IPs, topology) once deployed.
 - Possibly drive `deploy_arista_lab.yml`'s variables (image name/tag, device
-  names) from NetBox instead of `group_vars/all.yml`.
+  names) from NetBox instead of `group_vars/all.yml`, now that NetBox holds
+  the switch inventory as the Source of Truth.

@@ -1,0 +1,112 @@
+---
+# One iteration of this file onboards a single switch (loop_var: switch_name)
+# into NetBox: get-or-create the Device, a management Interface, and an IP
+# Address, then set that IP as the device's primary IPv4.
+#
+# Expects the following to already be set by the parent play:
+#   switch_name              - inventory hostname of the switch (the loop_var)
+#   netbox_url, netbox_headers, netbox_validate_certs
+#   netbox_device_type_id, netbox_device_role_id, netbox_site_id
+#   netbox_mgmt_interface, netbox_device_status
+# Also uses hostvars[switch_name].ansible_host as the management IP.
+
+- name: "Check if device already exists in NetBox: {{ switch_name }}"
+  ansible.builtin.uri:
+    url: "{{ netbox_url }}/api/dcim/devices/?name={{ switch_name | urlencode }}"
+    headers: "{{ netbox_headers }}"
+    validate_certs: "{{ netbox_validate_certs }}"
+    status_code: 200
+  register: device_lookup
+
+- name: "Create device in NetBox: {{ switch_name }}"
+  ansible.builtin.uri:
+    url: "{{ netbox_url }}/api/dcim/devices/"
+    method: POST
+    headers: "{{ netbox_headers }}"
+    validate_certs: "{{ netbox_validate_certs }}"
+    body_format: json
+    body:
+      name: "{{ switch_name }}"
+      device_type: "{{ netbox_device_type_id }}"
+      role: "{{ netbox_device_role_id }}"
+      site: "{{ netbox_site_id }}"
+      status: "{{ netbox_device_status }}"
+    status_code: 201
+  register: device_create
+  when: device_lookup.json.count == 0
+
+- name: "Determine device ID: {{ switch_name }}"
+  ansible.builtin.set_fact:
+    device_id: >-
+      {{ device_lookup.json.results[0].id if device_lookup.json.count > 0
+         else device_create.json.id }}
+
+- name: "Check if management interface already exists: {{ switch_name }}"
+  ansible.builtin.uri:
+    url: "{{ netbox_url }}/api/dcim/interfaces/?device_id={{ device_id }}&name={{ netbox_mgmt_interface | urlencode }}"
+    headers: "{{ netbox_headers }}"
+    validate_certs: "{{ netbox_validate_certs }}"
+    status_code: 200
+  register: interface_lookup
+
+- name: "Create management interface: {{ switch_name }}"
+  ansible.builtin.uri:
+    url: "{{ netbox_url }}/api/dcim/interfaces/"
+    method: POST
+    headers: "{{ netbox_headers }}"
+    validate_certs: "{{ netbox_validate_certs }}"
+    body_format: json
+    body:
+      device: "{{ device_id }}"
+      name: "{{ netbox_mgmt_interface }}"
+      type: "virtual"
+    status_code: 201
+  register: interface_create
+  when: interface_lookup.json.count == 0
+
+- name: "Determine interface ID: {{ switch_name }}"
+  ansible.builtin.set_fact:
+    interface_id: >-
+      {{ interface_lookup.json.results[0].id if interface_lookup.json.count > 0
+         else interface_create.json.id }}
+
+- name: "Check if IP address already exists: {{ switch_name }}"
+  ansible.builtin.uri:
+    url: "{{ netbox_url }}/api/ipam/ip-addresses/?address={{ (hostvars[switch_name].ansible_host + '/32') | urlencode }}"
+    headers: "{{ netbox_headers }}"
+    validate_certs: "{{ netbox_validate_certs }}"
+    status_code: 200
+  register: ip_lookup
+
+- name: "Create IP address assigned to management interface: {{ switch_name }}"
+  ansible.builtin.uri:
+    url: "{{ netbox_url }}/api/ipam/ip-addresses/"
+    method: POST
+    headers: "{{ netbox_headers }}"
+    validate_certs: "{{ netbox_validate_certs }}"
+    body_format: json
+    body:
+      address: "{{ hostvars[switch_name].ansible_host }}/32"
+      status: active
+      assigned_object_type: "dcim.interface"
+      assigned_object_id: "{{ interface_id }}"
+    status_code: 201
+  register: ip_create
+  when: ip_lookup.json.count == 0
+
+- name: "Determine IP address ID: {{ switch_name }}"
+  ansible.builtin.set_fact:
+    ip_id: >-
+      {{ ip_lookup.json.results[0].id if ip_lookup.json.count > 0
+         else ip_create.json.id }}
+
+- name: "Set as device's primary IPv4: {{ switch_name }}"
+  ansible.builtin.uri:
+    url: "{{ netbox_url }}/api/dcim/devices/{{ device_id }}/"
+    method: PATCH
+    headers: "{{ netbox_headers }}"
+    validate_certs: "{{ netbox_validate_certs }}"
+    body_format: json
+    body:
+      primary_ip4: "{{ ip_id }}"
+    status_code: 200
