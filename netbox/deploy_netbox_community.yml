@@ -67,7 +67,6 @@
           podman-compose exec -T 
           -e DJANGO_SUPERUSER_USERNAME="{{ netbox_admin_user }}" 
           -e DJANGO_SUPERUSER_PASSWORD="{{ netbox_admin_pass }}" 
-          -e DJANGO_SUPERUSER_EMAIL="{{ netbox_admin_email }}" 
           netbox /opt/netbox/netbox/manage.py createsuperuser --noinput
       args:
         chdir: "{{ netbox_clone_dir }}"
