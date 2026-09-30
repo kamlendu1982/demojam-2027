@@ -61,10 +61,28 @@
         delay: 15
         timeout: 300
 
+    - name: Create NetBox admin superuser
+      ansible.builtin.command:
+        cmd: >
+          podman-compose exec -T 
+          -e DJANGO_SUPERUSER_USERNAME="{{ netbox_admin_user }}" 
+          -e DJANGO_SUPERUSER_PASSWORD="{{ netbox_admin_pass }}" 
+          -e DJANGO_SUPERUSER_EMAIL="{{ netbox_admin_email }}" 
+          netbox /opt/netbox/netbox/manage.py createsuperuser --noinput
+      args:
+        chdir: "{{ netbox_clone_dir }}"
+      register: superuser_result
+      failed_when: 
+        - superuser_result.rc != 0
+        - "'already taken' not in superuser_result.stderr and 'already exists' not in superuser_result.stderr"
+      changed_when: "'Superuser created successfully' in superuser_result.stdout"
+
     - name: Display post-installation instructions
       ansible.builtin.debug:
         msg:
           - "NetBox is successfully running on Podman!"
+          - "Username: {{ netbox_admin_user }}"
+          - "Password: {{ netbox_admin_pass }}"
           - "You can access the UI at http://<VM-IP>:{{ netbox_port }}"
           - "To create the admin user, log into the RHEL VM and run:"
           - "cd {{ netbox_clone_dir }} && sudo podman-compose exec netbox /opt/netbox/netbox/manage.py createsuperuser"
