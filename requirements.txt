@@ -15,3 +15,12 @@ tenacity>=8.3
 pytest>=8.2
 pytest-asyncio>=0.23
 respx>=0.21
+
+# Embedded NetBox MCP server (NETBOX_MCP_TRANSPORT=stdio). Not on PyPI, so
+# installed directly from its GitHub release tag. Exposes the `netbox-mcp-
+# server` console script on PATH after install - no `uv`/clone/build step
+# needed at runtime, unlike the project's own README (which documents a
+# `uv --directory <path> run netbox-mcp-server` flow meant for local dev
+# against a cloned checkout, not for baking into a container image).
+# Pinned to a release tag for reproducible EE builds - bump deliberately.
+netbox-mcp-server @ git+https://github.com/netboxlabs/netbox-mcp-server.git@v1.2.1

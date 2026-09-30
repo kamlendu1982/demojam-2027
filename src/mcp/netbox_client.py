@@ -127,9 +127,15 @@ class NetBoxMCPClient:
         ) or "netbox_get_objects"
 
         try:
+            # object_type is NetBox's internal Django "app_label.model" name
+            # (singular - dcim.device), NOT the REST API's plural URL path
+            # segment (dcim.devices). Confirmed against a real
+            # netbox-mcp-server v1.2.1 instance: passing the plural form
+            # raises "Invalid object_type" with the full valid-type list,
+            # which includes "dcim.device" but not "dcim.devices".
             result = self._mcp.call_tool(
                 tool_name,
-                {"object_type": "dcim.devices", "filters": {"name": device_name}},
+                {"object_type": "dcim.device", "filters": {"name": device_name}},
             )
         except Exception as exc:  # noqa: BLE001
             raise MCPClientError(f"NetBox MCP call failed via '{tool_name}': {exc}") from exc

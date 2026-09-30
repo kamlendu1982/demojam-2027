@@ -86,8 +86,10 @@ Protocol (MCP)** — see `src/mcp/`:
   (streamable-HTTP or stdio), with dynamic tool discovery so it keeps
   working even if a server renames a tool between versions.
 - `src/mcp/netbox_client.py` — resolves a device's networking attributes
-  from a NetBox MCP server (default tool: `netbox_get_objects` on
-  `dcim.devices`, override with `NETBOX_MCP_DEVICE_TOOL`).
+  from a NetBox MCP server (dynamically discovers a `get`+`objects` tool,
+  e.g. `netbox_get_objects`, called with `object_type=dcim.device` — the
+  singular Django model name, not the plural REST path `dcim/devices/`;
+  override the tool name with `NETBOX_MCP_DEVICE_TOOL`).
 - `src/mcp/github_client.py` — resolves a device's security policy file
   from a GitHub MCP server via `get_file_contents` (the tool name exposed
   by GitHub's official `github-mcp-server`).

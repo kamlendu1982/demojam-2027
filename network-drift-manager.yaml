@@ -86,7 +86,11 @@
 
     netbox_mcp_transport: "stdio"
     netbox_mcp_url: ""
-    netbox_mcp_command: ""
+    # netbox-mcp-server is baked into this project's EE image (see
+    # requirements.txt / Containerfile) and is on PATH as a plain console
+    # script - no path/uv wrapper needed. Override if you point this Job
+    # Template at a different EE that doesn't have it installed.
+    netbox_mcp_command: "netbox-mcp-server"
     netbox_verify_ssl: "true"
     netbox_mcp_device_tool: ""
 

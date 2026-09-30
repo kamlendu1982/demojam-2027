@@ -61,8 +61,19 @@ USER root
 # ---------------------------------------------------------
 COPY requirements.txt /tmp/requirements.txt
 
+# --no-build-isolation + pre-installing hatchling is required for the
+# netbox-mcp-server line in requirements.txt (git source, no prebuilt
+# wheel on PyPI - pip has to build it). Every OTHER package here installs
+# from a prebuilt wheel, so this doesn't affect them, but without it pip's
+# isolated build-env subprocess trips over a broken leftover
+# nsx_policy_python_sdk-*-py2.7-nspkg.pth file in this base image (a
+# stale VMware NSX SDK namespace-package shim from Red Hat's own image
+# build, unrelated to this project) with
+# "ModuleNotFoundError: No module named 'json'" - confirmed by
+# reproducing the failure, unrelated to network/credentials/pinning.
 RUN python3.12 -m pip install --no-cache-dir --upgrade pip setuptools wheel \
-    && python3.12 -m pip install --no-cache-dir -r /tmp/requirements.txt \
+    && python3.12 -m pip install --no-cache-dir hatchling \
+    && python3.12 -m pip install --no-cache-dir --no-build-isolation -r /tmp/requirements.txt \
     && rm /tmp/requirements.txt
 
 # ---------------------------------------------------------
@@ -98,4 +109,7 @@ USER 1000
 RUN python3.12 -c "\
 import pydantic, pydantic_settings, dotenv, httpx, yaml; \
 import mcp, openai, typer, rich, tenacity; \
-print('EE smoke test passed - all deps import OK')"
+import netbox_mcp_server; \
+print('EE smoke test passed - all deps import OK')" \
+    && netbox-mcp-server --help > /dev/null \
+    && echo "netbox-mcp-server console script is on PATH"
