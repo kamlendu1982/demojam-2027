@@ -76,13 +76,20 @@
     pipeline_apply: false      # true = launch AAP remediation; false = plan only
 
     # -----------------------------------------------------------------
-    # Non-sensitive settings (set as Extra Variables or Survey in AAP)
+    # Non-sensitive settings.
+    #
+    # These are stable for this project's environment, so they default
+    # to real values here instead of requiring every single Job
+    # Template launch to re-supply ~10 Extra Variables just to run a
+    # "simple" per-device test. Override any of them per-launch with
+    # Extra Variables / Survey if you point this playbook at a
+    # different NetBox/MaaS/AAP/GitHub target.
     # -----------------------------------------------------------------
-    maas_api_base: ""
-    maas_model: ""
+    maas_api_base: "https://maas-rhdp.apps.maas.redhatworkshops.io/v1"
+    maas_model: "llama-scout-17b"
 
     # Real NetBox instance URL — pairs with the NETBOX_TOKEN credential.
-    netbox_url: ""
+    netbox_url: "http://ec2-18-226-224-180.us-east-2.compute.amazonaws.com:8000/"
 
     netbox_mcp_transport: "stdio"
     netbox_mcp_url: ""
@@ -95,14 +102,16 @@
     netbox_mcp_device_tool: ""
 
     github_mcp_transport: "http"
-    github_mcp_url: ""
+    github_mcp_url: "https://api.githubcopilot.com/mcp/"
     github_mcp_command: ""
-    github_policy_repo_owner: ""
-    github_policy_repo_name: ""
+    # NOTE: still placeholders - set real values (Extra Variables/Survey)
+    # before relying on GitHub-governed (security) drift checks.
+    github_policy_repo_owner: "your-org"
+    github_policy_repo_name: "network-security-policies"
     github_policy_branch: "main"
     github_policy_path_template: "security-policies/{device}.yml"
 
-    aap_url: ""
+    aap_url: "https://control-7whhz.apps.ocpvdev01.rhdp.net/"
     aap_verify_ssl: "false"
     aap_job_template_netbox_remediation: "revert-network-config-from-netbox"
     aap_job_template_github_remediation: "revert-security-config-from-github"

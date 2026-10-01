@@ -23,15 +23,28 @@ ansible-navigator:
 
     # Environment variables to pass through from the HOST shell into the
     # container. Only needed if you export these instead of putting them
-    # in .env (see STEPS.md Step 2, "Option B"). Harmless to leave listed
-    # even when unset.
+    # in .env (see STEPS.md Step 2, "Option B").
+    #
+    # WARNING: network-drift-manager.yaml treats ANY non-empty value for
+    # these 5 names as proof "this is an AAP-injected run" and, on that
+    # basis, REGENERATES (overwrites) the project's .env file from
+    # scratch. If you export one of these in a shell for some unrelated
+    # reason (or leave a stale/old value exported from earlier testing)
+    # and then run ansible-navigator from that same shell, it will
+    # silently clobber your real .env with that stale value - this bit
+    # us during development (a leftover placeholder NETBOX_TOKEN export
+    # downgraded the real token). If you use Option A (.env file only,
+    # the default for this project), leave these commented out and make
+    # sure none of the 5 names below are exported in your shell
+    # (`env | grep -E 'MAAS_API_KEY|NETBOX_TOKEN|NETBOX_MCP_TOKEN|GITHUB_MCP_TOKEN|AAP_TOKEN'`
+    # should print nothing).
     environment-variables:
       pass:
-        - MAAS_API_KEY
-        - NETBOX_TOKEN
-        - NETBOX_MCP_TOKEN
-        - GITHUB_MCP_TOKEN
-        - AAP_TOKEN
+        # - MAAS_API_KEY
+        # - NETBOX_TOKEN
+        # - NETBOX_MCP_TOKEN
+        # - GITHUB_MCP_TOKEN
+        # - AAP_TOKEN
         - PYTHONUNBUFFERED
         - TZ
 
