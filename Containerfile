@@ -77,6 +77,18 @@ RUN python3.12 -m pip install --no-cache-dir --upgrade pip setuptools wheel \
     && rm /tmp/requirements.txt
 
 # ---------------------------------------------------------
+# Ansible Galaxy collections
+# ---------------------------------------------------------
+# arista.eos (+ ansible.netcommon) - needed by
+# revert-network-config-from-netbox.yml to push config directly to the
+# Arista cEOS switches via network_cli. ansible-galaxy is already present
+# in this base image (it's an AAP EE - ansible-core is preinstalled).
+# ---------------------------------------------------------
+COPY requirements.yml /tmp/requirements.yml
+RUN ansible-galaxy collection install -r /tmp/requirements.yml \
+    && rm /tmp/requirements.yml
+
+# ---------------------------------------------------------
 # SSH known hosts
 # ---------------------------------------------------------
 # ssh-keyscan comes from openssh-clients, already present in the base

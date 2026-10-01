@@ -1,0 +1,13 @@
+---
+# Ansible Galaxy collections required by playbooks in this project that
+# configure the Arista cEOS devices directly (e.g.
+# revert-network-config-from-netbox.yml). Installed into the EE at build
+# time - see Containerfile.
+collections:
+  - name: arista.eos
+    version: ">=6.0.0"
+  # ansible.netcommon provides the network_cli/httpapi connection plugins
+  # arista.eos depends on - listed explicitly so the version is pinned
+  # rather than whatever arista.eos happens to pull in transitively.
+  - name: ansible.netcommon
+    version: ">=5.0.0"

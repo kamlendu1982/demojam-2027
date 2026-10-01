@@ -35,10 +35,14 @@ security_attributes:
 #   - custom fields:           "custom_fields.dns_servers"
 #   - config context values:   "config_context.ntp_servers"
 networking_attributes:
+  # dns_servers / ntp_servers actually live in this device's NetBox Config
+  # Context (not a custom field - confirmed live: GET
+  # /api/dcim/devices/?name=switch1&include=config_context returns
+  # config_context: {"dns_servers": [...], "ntp_servers": [...]}).
   dns_servers:
-    netbox_path: custom_fields.dns_servers
+    netbox_path: config_context.dns_servers
   ntp_servers:
-    netbox_path: custom_fields.ntp_servers
+    netbox_path: config_context.ntp_servers
   num_interfaces:
     netbox_path: "len(interfaces)"
   interfaces:

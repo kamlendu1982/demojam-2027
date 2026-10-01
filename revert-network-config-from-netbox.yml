@@ -1,0 +1,105 @@
+# =============================================================================
+# Revert Network Config From NetBox - Ansible Playbook
+# =============================================================================
+# Launched by Agent 2 (src/agents/agent2_netbox_remediator.py /
+# src/aap/aap_client.py) via the AAP job template named
+# AAP_JOB_TEMPLATE_NETBOX_REMEDIATION (default: "revert-network-config-
+# from-netbox") whenever network-drift-manager.yaml's pipeline runs with
+# pipeline_apply=true and finds networking drift.
+#
+# Agent 2 passes extra_vars shaped like:
+#   {"device_name": "switch1", "dns_servers": ["1.1.1.1", "8.8.8.8"]}
+# i.e. one extra var per drifted NETWORKING attribute (named exactly like
+# the attribute), each holding NetBox's source-of-truth value - the
+# device should end up matching that value exactly (drifted/extra values
+# removed, missing ones added), not just additively merged.
+#
+# CURRENTLY IMPLEMENTED: dns_servers only (the attribute this project has
+# exercised end-to-end so far - confirmed live against NetBox's
+# config_context for switch1). Extend the `tasks:` below following the
+# same get-current / diff / eos_config pattern for other networking
+# attributes as they come up (ntp_servers, vlan, mtu, etc.).
+#
+# REQUIRES (not yet verified live - this environment has no network path
+# to the Containerlab management bridge, see arista_virtual_devices/README.md):
+#   - arista.eos + ansible.netcommon collections (see requirements.yml /
+#     Containerfile - requires an EE rebuild + push before this will run
+#     via AAP with the demojam-network-drift-manager-ee image)
+#   - Inventory with device_name as a host, connection vars set for
+#     network_cli/arista.eos.eos (see
+#     arista_virtual_devices/netbox_devices_inventory - group_vars on
+#     arista_switches - UPDATE ansible_user/ansible_password there to match
+#     your actual lab switches)
+#   - AAP: this project's AAP Inventory (ID 8 "DemoJam") must also have
+#     switch1/switch2 registered with the same connection vars, since AAP
+#     Job Templates use an AAP-managed Inventory, not this project's
+#     static netbox_devices_inventory file directly (same class of gotcha
+#     already hit once with deploy_arista_lab.yml / host_vars).
+# =============================================================================
+
+- name: Revert network device config to match NetBox source of truth
+  hosts: "{{ device_name }}"
+  gather_facts: false
+
+  tasks:
+    - name: Abort - device_name not provided
+      ansible.builtin.fail:
+        msg: "'device_name' extra var is required (the inventory hostname to remediate)."
+      when: not device_name
+      run_once: true
+      delegate_to: localhost
+
+    # -----------------------------------------------------------------
+    # dns_servers
+    # -----------------------------------------------------------------
+    - name: Get current DNS name-server lines from the device
+      arista.eos.eos_command:
+        commands:
+          - show running-config section ip name-server
+      register: _dns_show
+      when: dns_servers is defined
+
+    - name: Parse current DNS servers from running-config
+      ansible.builtin.set_fact:
+        _current_dns_servers: >-
+          {{
+            _dns_show.stdout[0]
+            | regex_findall('ip name-server(?: vrf \S+)? (\S+)')
+          }}
+      when: dns_servers is defined
+
+    - name: Compute DNS servers to remove (present on device, not in NetBox)
+      ansible.builtin.set_fact:
+        _dns_to_remove: "{{ _current_dns_servers | difference(dns_servers) }}"
+      when: dns_servers is defined
+
+    - name: Compute DNS servers to add (in NetBox, missing on device)
+      ansible.builtin.set_fact:
+        _dns_to_add: "{{ dns_servers | difference(_current_dns_servers) }}"
+      when: dns_servers is defined
+
+    - name: Show DNS remediation plan
+      ansible.builtin.debug:
+        msg:
+          - "Current on device : {{ _current_dns_servers }}"
+          - "NetBox truth      : {{ dns_servers }}"
+          - "Will remove       : {{ _dns_to_remove }}"
+          - "Will add          : {{ _dns_to_add }}"
+      when: dns_servers is defined
+
+    - name: Apply DNS server config to match NetBox
+      arista.eos.eos_config:
+        lines: >-
+          {{
+            (_dns_to_remove | map('regex_replace', '^(.*)$', 'no ip name-server \1') | list)
+            + (_dns_to_add | map('regex_replace', '^(.*)$', 'ip name-server \1') | list)
+          }}
+      when:
+        - dns_servers is defined
+        - (_dns_to_remove | length > 0) or (_dns_to_add | length > 0)
+      register: _dns_apply
+
+    - name: Show result
+      ansible.builtin.debug:
+        msg: "{{ 'Applied' if (_dns_apply.changed | default(false)) else 'Already matched NetBox - no change needed' }}"
+      when: dns_servers is defined

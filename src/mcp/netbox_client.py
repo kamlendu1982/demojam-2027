@@ -135,7 +135,20 @@ class NetBoxMCPClient:
             # which includes "dcim.device" but not "dcim.devices".
             result = self._mcp.call_tool(
                 tool_name,
-                {"object_type": "dcim.device", "filters": {"name": device_name}},
+                {
+                    "object_type": "dcim.device",
+                    # include=config_context: NetBox omits the (expensive to
+                    # compute) config_context field by default. Several
+                    # networking_attributes entries in
+                    # config/attribute_classification.yaml read from
+                    # config_context.* (e.g. dns_servers, ntp_servers) -
+                    # without this, those paths always resolve to None,
+                    # making every such attribute look like NetBox has no
+                    # opinion on it rather than comparing against the real
+                    # value. Confirmed live: switch1's config_context holds
+                    # the real dns_servers/ntp_servers values.
+                    "filters": {"name": device_name, "include": "config_context"},
+                },
             )
         except Exception as exc:  # noqa: BLE001
             raise MCPClientError(f"NetBox MCP call failed via '{tool_name}': {exc}") from exc

@@ -18,10 +18,25 @@ all:
         #
         # NOT required by netbox_onboard_switches.yml - that playbook runs
         # on localhost and only reads ansible_host below to call the NetBox
-        # API, it never connects to the switches themselves. This is here
-        # for future playbooks that do need to reach the switches directly
-        # (e.g. via arista.eos / eAPI / SSH).
+        # API, it never connects to the switches themselves.
+        #
+        # IS required by revert-network-config-from-netbox.yml (Agent 2's
+        # remediation target) - that playbook connects directly to these
+        # switches over SSH/network_cli to push config.
         ansible_ssh_common_args: '-o StrictHostKeyChecking=no -o ProxyJump=ubuntu@172.31.8.57'
+
+        # arista.eos / network_cli connection settings - also only used by
+        # revert-network-config-from-netbox.yml.
+        ansible_connection: ansible.netcommon.network_cli
+        ansible_network_os: arista.eos.eos
+        # UPDATE THESE to match your actual cEOS lab credentials (containerlab
+        # arista_ceos nodes default to user "admin" with NO password unless a
+        # startup-config says otherwise - verify with
+        # `ssh admin@172.20.20.3` from the Ubuntu VM before relying on this).
+        ansible_user: admin
+        ansible_password: ""
+        ansible_become: true
+        ansible_become_method: enable
       hosts:
         # Replace with the actual management IPs assigned by Containerlab.
         # Find them with: sudo containerlab inspect -t /opt/arista-lab/lab.clab.yml
