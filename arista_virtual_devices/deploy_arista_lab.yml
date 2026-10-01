@@ -2,12 +2,25 @@
 - name: Deploy Arista cEOS Lab using Containerlab
   hosts: all
   become: true
-  # Variables (ceos_tar_name, ceos_image_repo, ceos_image_tag, lab_dir) now
-  # live in host_vars/ubuntu-lab-host.yml instead of inline here. (Scoped to
-  # this specific host, not group_vars/all, so they don't leak into other
+  # Variables (ceos_tar_name, ceos_image_repo, ceos_image_tag, lab_dir) live
+  # in host_vars/ubuntu-lab-host.yml instead of inline here. (Scoped to this
+  # specific host, not group_vars/all, so they don't leak into other
   # inventories in this directory - e.g. netbox_devices_inventory.)
-
+  #
+  # Loaded explicitly below via include_vars (fixed relative path) rather
+  # than relying on Ansible's automatic host_vars/<inventory_hostname>.yml
+  # lookup. That automatic lookup only fires for a host literally named
+  # "ubuntu-lab-host" - true for the project's own ./inventory file, but
+  # NOT for an AAP-managed Inventory, which typically registers this same
+  # VM under its cloud-provider hostname instead (e.g.
+  # ip-172-31-8-57.us-east-2.compute.internal) - that mismatch caused
+  # 'ceos_image_repo' is undefined failures on every AAP job run here.
+  # include_vars works regardless of what any inventory names this host.
   tasks:
+    - name: Load Ubuntu lab host variables (path-based, independent of inventory_hostname)
+      ansible.builtin.include_vars:
+        file: "{{ playbook_dir }}/host_vars/ubuntu-lab-host.yml"
+
     - name: Ensure Docker is installed (Ubuntu)
       ansible.builtin.apt:
         name: docker.io
