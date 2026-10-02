@@ -111,7 +111,15 @@
     github_policy_branch: "main"
     github_policy_path_template: "security-policies/{device}.yml"
 
-    aap_url: "https://control-7whhz.apps.ocpvdev01.rhdp.net/"
+    # This MUST be the AAP instance this playbook is actually running on
+    # (i.e. the same instance whose Job Template launched this job) -
+    # Agent 2/4 call back into this URL to launch the remediation job
+    # template. Confirmed live: the previous default
+    # (control-7whhz.apps.ocpvdev01.rhdp.net) was a stale/different AAP
+    # instance - job 928's agent2_netbox_remediation failed with
+    # "503 Service Unavailable" trying to reach it, even though
+    # pipeline_apply=true worked correctly and dry_run=false.
+    aap_url: "https://ec2-3-151-43-126.us-east-2.compute.amazonaws.com/"
     aap_verify_ssl: "false"
     aap_job_template_netbox_remediation: "revert-network-config-from-netbox"
     aap_job_template_github_remediation: "revert-security-config-from-github"
