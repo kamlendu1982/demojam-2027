@@ -91,10 +91,26 @@
             links:
               - endpoints: ["switch1:eth1", "switch2:eth1"]
 
-    - name: Deploy Containerlab topology
-      ansible.builtin.command: "containerlab deploy -t {{ lab_dir }}/lab.clab.yml"
-      register: deploy_output
-      changed_when: "'Deploying' in deploy_output.stdout or 'Creating' in deploy_output.stdout"
+    - name: Attempt deployment and handle failures
+      block:
+        - name: Deploy Containerlab topolog
+          ansible.builtin.command: "containerlab deploy -t {{ lab_dir }}/lab.clab.yml"
+          register: deploy_output
+          changed_when: "'Deploying' in deploy_output.stdout or 'Creating' in deploy_output.stdout"
+      rescue:
+        - name: Cleanup previous states after deployment failure
+          ansible.builtin.shell: |
+            containerlab destroy -t lab.clab-arista.yml --cleanup 2>/dev/null || true
+            containerlab destroy -t /opt/containerlab/ansible-lab/topology.clab.yml --cleanup 2>/dev/null || true
+            docker rm -f $(docker ps -a -q) 2>/dev/null || true
+          args:
+            executable: /bin/bash
+
+        - name: Deploy Containerlab topology (Retry after cleanup)
+          ansible.builtin.command: "containerlab deploy -t {{ lab_dir }}/lab.clab.yml"
+          register: deploy_retry_output
+          changed_when: "'Deploying' in deploy_retry_output.stdout or 'Creating' in deploy_retry_output.stdout"
+
 
     - name: Show Deployment Results
       ansible.builtin.debug:
