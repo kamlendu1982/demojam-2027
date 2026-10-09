@@ -1,0 +1,48 @@
+---
+# Configure Arista EOS switches to forward syslog and AAA accounting to Splunk.
+#
+# Intended as a separate AAP Job Template step in a Workflow, after
+# deploy_arista_lab.yml (and optionally after netbox_onboard_switches.yml).
+#
+# Inventory: netbox_devices_inventory (group arista_switches) — same SSH /
+# ProxyJump / network_cli settings as revert-network-config-from-netbox.yml.
+#
+# Extra variables (all optional; defaults match the lab Splunk listener):
+#   splunk_host                        default 172.31.42.141
+#   splunk_port                        default 514
+#   splunk_logging_source_interface    default Management0
+
+- name: Configure Splunk logging on Arista virtual switches
+  hosts: arista_switches
+  gather_facts: false
+
+  vars:
+    splunk_host: "172.31.42.141"
+    splunk_port: 514
+    splunk_logging_source_interface: Management0
+
+  tasks:
+    - name: Apply Splunk logging and AAA accounting configuration
+      arista.eos.eos_config:
+        lines:
+          - "logging host {{ splunk_host }} {{ splunk_port }} protocol udp"
+          - "logging source-interface {{ splunk_logging_source_interface }}"
+          - logging trap informational
+          - logging format hostname fqdn
+          - logging format timestamp high-resolution
+          - aaa accounting commands all default start-stop logging
+          - aaa accounting exec default start-stop logging
+      register: splunk_logging_config
+
+    - name: Save running-config to startup-config
+      arista.eos.eos_command:
+        commands:
+          - write memory
+      when: splunk_logging_config.changed
+
+    - name: Show Splunk logging summary
+      ansible.builtin.debug:
+        msg: >-
+          {{ inventory_hostname }}: Splunk {{ splunk_host }}:{{ splunk_port }}
+          via {{ splunk_logging_source_interface }} —
+          {{ 'updated and saved' if splunk_logging_config.changed else 'already configured' }}

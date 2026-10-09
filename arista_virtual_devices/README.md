@@ -25,6 +25,7 @@ NetBox is used as the Source of Truth for these two devices, registered by
 | Path | Purpose |
 |---|---|
 | `deploy_arista_lab.yml` | Installs Docker + Containerlab, imports the Arista cEOS image, generates a Containerlab topology file, and deploys it. |
+| `configure_splunk_logging.yml` | Pushes syslog + AAA accounting settings on `switch1`/`switch2` for Splunk (separate workflow step after deployment). |
 | `inventory` | Static inventory with the one deployment target host (`ubuntu-lab-host`). |
 | `host_vars/ubuntu-lab-host.yml` | Configurable variables for `deploy_arista_lab.yml` (image names/tags, file paths). Scoped to that specific hostname so it can't leak into `netbox_devices_inventory`'s hosts. |
 | `files/` | **Intentionally empty** — see [Staging the Arista image](#1-stage-the-arista-ceos-image-on-the-target-vm-one-time). Ignored by git (`.gitignore`) so a 500+ MB tar never gets committed by accident. |
@@ -151,6 +152,60 @@ The playbook's final task also prints this inspect command in its output.
 9. **Deploy the topology** with `containerlab deploy`.
 10. **Print the inspect command** for the user to check IPs/status.
 
+## Splunk logging (post-deployment workflow step)
+
+After the cEOS lab is deployed and switch management IPs are known, run
+`configure_splunk_logging.yml` as its **own AAP Job Template** (typically the
+next node in a **Workflow Job Template** after `deploy_arista_lab.yml`).
+
+This playbook connects to each host in the `arista_switches` group and applies
+the same configuration you would enter on the CLI:
+
+- `logging host <splunk_host> <splunk_port> protocol udp`
+- `logging source-interface <interface>`
+- `logging trap informational`
+- `logging format hostname fqdn`
+- `logging format timestamp high-resolution`
+- `aaa accounting commands all default start-stop logging`
+- `aaa accounting exec default start-stop logging`
+- `write memory` (only when the running config changed)
+
+**Inventory:** use `netbox_devices_inventory` (not the Ubuntu VM `inventory`).
+Connection vars (`ProxyJump`, `ansible_network_os`, credentials) are already
+defined on the `arista_switches` group — update `ansible_user` /
+`ansible_password` there if your lab differs.
+
+**AAP Job Template:**
+
+| Setting | Value |
+|---|---|
+| Playbook | `arista_virtual_devices/configure_splunk_logging.yml` |
+| Inventory | DemoJam (or any inventory that includes `switch1` / `switch2` with the same connection vars as `netbox_devices_inventory`) |
+| Credential | Machine credential for SSH via the Ubuntu jump host, if not fully covered by inventory vars |
+| Execution environment | Image with `arista.eos` + `ansible.netcommon` (see repo `requirements.yml` / `Containerfile`) |
+
+**Extra variables** (optional — defaults are set in the playbook):
+
+| Variable | Default | Description |
+|---|---|---|
+| `splunk_host` | `172.31.42.141` | Splunk syslog collector IP or hostname |
+| `splunk_port` | `514` | UDP syslog port |
+| `splunk_logging_source_interface` | `Management0` | Source interface for syslog packets |
+
+Example launch from CLI:
+
+```bash
+cd arista_virtual_devices
+ansible-playbook -i netbox_devices_inventory configure_splunk_logging.yml \
+  -e splunk_host=172.31.42.141 -e splunk_port=514
+```
+
+**Suggested workflow order:** `deploy_arista_lab.yml` → (optional)
+`netbox_onboard_switches.yml` → `configure_splunk_logging.yml`.
+
+If your cEOS nodes use a different management interface name (e.g.
+`Management1`), override `splunk_logging_source_interface` in extra vars.
+
 ## NetBox registration
 
 Once `switch1`/`switch2` are deployed and you know their management IPs
@@ -210,6 +265,8 @@ assumed — NetBox 4.x renamed the Device API's role field from `device_role`
 | `docker: permission denied` type errors | Ensure the play's `become: true` is honored (AAP credential must have privilege escalation enabled). |
 | SSH connection failures from AAP | Confirm the Machine credential's user/key matches `ansible_user` in inventory, and that the AAP execution node can reach `ansible_host`. |
 | Re-running doesn't re-import the image | Expected — `docker images -q` makes the import idempotent. Remove the image (`docker rmi ceos:4.32.0F`) to force re-import. |
+| `configure_splunk_logging.yml` cannot reach switches | Confirm `netbox_devices_inventory` IPs match `containerlab inspect`, and that `ansible_ssh_common_args` ProxyJump reaches the Ubuntu VM. Run from AAP only if the execution environment can reach the jump host. |
+| Splunk shows no events | Verify `splunk_host` / `splunk_port` extra vars, UDP reachability from the switches, and that `splunk_logging_source_interface` exists on the device (`Management0` vs `Management1`). |
 | `netbox_onboard_switches.yml` fails with "netbox_token is required" | Pass `-e netbox_token=...` (CLI) or set it via an AAP survey/credential — it's never hardcoded in the repo. |
 | `netbox_onboard_switches.yml` fails with a 403 from NetBox | The token is invalid/expired, or lacks write permission on `dcim`/`ipam`. Regenerate it in the NetBox UI. |
 
