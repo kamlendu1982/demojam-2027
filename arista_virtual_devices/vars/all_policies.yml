@@ -12,8 +12,8 @@ security_acls:
           any: true
         destination:
           any: true
-        port_protocol:
-          eq: "22"   # Allow SSH
+          port_protocol:
+            eq: "22"   # Allow SSH (Nested under destination)
           
       - sequence: 20
         grant: deny
@@ -22,8 +22,8 @@ security_acls:
           any: true
         destination:
           any: true
-        port_protocol:
-          eq: "23"   # Block Telnet
+          port_protocol:
+            eq: "23"   # Block Telnet (Nested under destination)
           
       - sequence: 30
         grant: permit
