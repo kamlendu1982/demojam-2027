@@ -33,6 +33,16 @@
       ignore_errors: true
       changed_when: false
 
+    - name: disable the AppArmor profile part 1
+      ansible.builtin.command: ln -s /etc/apparmor.d/usr.sbin.rsyslogd /etc/apparmor.d/disable/
+      ignore_errors: true
+      become: true
+
+    - name: disable the AppArmor profile part 2
+      ansible.builtin.command: apparmor_parser -R /etc/apparmor.d/usr.sbin.rsyslogd
+      ignore_errors: true
+      become: true
+
     - name: Install Containerlab
       ansible.builtin.shell: bash -c "$(curl -sL https://get.containerlab.dev)"
       when: clab_check.rc != 0
