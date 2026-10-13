@@ -3,6 +3,8 @@
 - name: Deploy Security Policies from GitHub to Arista
   hosts: all
   gather_facts: false
+  vars_files:
+    - vars/all_policies.yml
   
   tasks:
     - name: Push IPv4 Access Control Lists to Arista Switches
