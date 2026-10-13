@@ -4,10 +4,31 @@
 # Define your Arista ACLs in pure YAML format
 security_acls:
   - name: SECURE_MANAGEMENT
-    entries:
+    aces:
       - sequence: 10
-        action: permit tcp any any eq 22    # Allow SSH
+        grant: permit
+        protocol: tcp
+        source:
+          any: true
+        destination:
+          any: true
+        port_protocol:
+          eq: "22"   # Allow SSH
+          
       - sequence: 20
-        action: deny tcp any any eq 23      # Block Telnet
+        grant: deny
+        protocol: tcp
+        source:
+          any: true
+        destination:
+          any: true
+        port_protocol:
+          eq: "23"   # Block Telnet
+          
       - sequence: 30
-        action: permit ip any any           # Allow everything else
+        grant: permit
+        protocol: ip
+        source:
+          any: true
+        destination:
+          any: true
