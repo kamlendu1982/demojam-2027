@@ -1,0 +1,13 @@
+---
+# deploy_policies.yml
+- name: Deploy Security Policies from GitHub to Arista
+  hosts: all
+  gather_facts: false
+  
+  tasks:
+    - name: Push IPv4 Access Control Lists to Arista Switches
+      arista.eos.eos_acls:
+        config:
+          - afi: ipv4
+            acls: "{{ security_acls }}"
+        state: merged

@@ -1,0 +1,13 @@
+---
+# group_vars/all_policies.yml
+
+# Define your Arista ACLs in pure YAML format
+security_acls:
+  - name: SECURE_MANAGEMENT
+    entries:
+      - sequence: 10
+        action: permit tcp any any eq 22    # Allow SSH
+      - sequence: 20
+        action: deny tcp any any eq 23      # Block Telnet
+      - sequence: 30
+        action: permit ip any any           # Allow everything else
