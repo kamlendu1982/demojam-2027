@@ -1,0 +1,249 @@
+# =============================================================================
+# Parse EDA Payload - Ansible Playbook
+# =============================================================================
+# STANDALONE, NEW COMPONENT - does NOT modify network-drift-manager.yaml,
+# anything in src/, or any other existing file/functionality. Meant to be
+# run and tested as its OWN AAP Job Template first, in isolation, before
+# any integration.
+#
+# PURPOSE
+# -------
+# Intended to sit UPSTREAM of DemoJamNetworkDriftManageent in an AAP
+# Workflow Job Template:
+#
+#   EDA rulebook (owned by another team) --launches--> Workflow Job Template
+#       Node 1: THIS job template (Parse_EDA_Payload)
+#           -> set_stats: device_name, device_attributes, pipeline_apply
+#       Node 2 (on success): DemoJamNetworkDriftManageent
+#           -> automatically receives device_name / device_attributes /
+#              pipeline_apply as extra_vars - AAP merges all upstream
+#              set_stats data into the extra_vars available to downstream
+#              workflow nodes, the same way network-drift-manager.yaml's
+#              own set_stats step already works today.
+#
+# This playbook does NOT assume a specific extra_vars shape from the EDA
+# rulebook - see eda_integration/payload_parser.py for exactly how it
+# locates the raw Splunk/AAA message regardless of which key(s) the
+# rulebook happens to use.
+#
+# HOW SECRETS AND VARIABLES ARE PASSED
+# =====================================
+# Sensitive values - set via an AAP Custom Credential (injector env var),
+# OR for local/standalone testing ONLY, pass maas_api_key_fallback as a
+# plain extra var:
+#     MAAS_API_KEY        - MaaS / LLM API key (used ONLY by the Layer-3
+#                            LLM fallback, for genuinely ambiguous events -
+#                            most events never reach this step)
+#
+# Non-sensitive values - Job Template Extra Variables:
+#     maas_api_base, maas_model   - same MaaS endpoint already used by
+#                                    network-drift-manager.yaml (defaults
+#                                    match it)
+#     eda_llm_instruction          - optional override of the LLM fallback
+#                                    instruction prompt (default is baked
+#                                    into payload_parser.py)
+#
+# Per-run inputs - whatever the EDA rulebook / a manual test launch passes
+# as Extra Variables. This playbook captures ALL of them (via
+# hostvars[inventory_hostname]) and hands the full set to
+# payload_parser.py, which searches for the raw message itself - no
+# specific key name is required here.
+# =============================================================================
+
+- name: Parse EDA Payload - extract device_name / device_attributes from an unknown-shape EDA event
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    parser_python: "python3.12"
+    parser_script: "{{ playbook_dir }}/payload_parser.py"
+
+    # Same MaaS endpoint network-drift-manager.yaml already uses by
+    # default - override via Extra Variables if needed.
+    maas_api_base: "https://maas-rhdp.apps.maas.redhatworkshops.io/v1"
+
+    # Default model for the Layer-3 LLM fallback (genuinely ambiguous
+    # events only). "gpt-oss-120b" is also available on this same MaaS
+    # endpoint/API key (confirmed live) - override with
+    # `-e maas_model=gpt-oss-120b` to try it. Tested head-to-head on 3
+    # ambiguous cases: same correctness as llama-scout-17b, but ~50%
+    # higher latency per call (it's a reasoning model with hidden
+    # chain-of-thought tokens before the final answer). Kept
+    # llama-scout-17b as the default; swap only if you hit a harder case
+    # llama-scout-17b gets wrong.
+    maas_model: "llama-scout-17b"
+
+    # For local/standalone testing without an AAP Custom Credential set up
+    # yet. In AAP, prefer injecting MAAS_API_KEY via a Custom Credential
+    # instead (it will take precedence - see the "environment" block
+    # below).
+    maas_api_key_fallback: ""
+
+    # Optional override of the LLM fallback instruction prompt. Leave
+    # empty to use payload_parser.py's built-in default.
+    eda_llm_instruction: ""
+
+  pre_tasks:
+    - name: Compute run timestamp
+      ansible.builtin.set_fact:
+        run_timestamp: "{{ lookup('pipe', 'date +%Y%m%d_%H%M%S') }}"
+
+    - name: Derive input/output file paths from the run timestamp
+      ansible.builtin.set_fact:
+        payload_input_file: "/tmp/eda-payload-input-{{ run_timestamp }}.json"
+        payload_log_file: "/tmp/eda-payload-{{ run_timestamp }}.log"
+
+    - name: Confirm python3.12 is available
+      ansible.builtin.command:
+        cmd: "{{ parser_python }} --version"
+      register: _py_ver
+      changed_when: false
+      failed_when: _py_ver.rc != 0
+
+    - name: Show Python version
+      ansible.builtin.debug:
+        msg: "Using {{ _py_ver.stdout }}"
+
+    # -----------------------------------------------------------------
+    # Dump EVERY variable visible for this run (i.e. every Extra
+    # Variable passed at launch, whatever the EDA rulebook decided to
+    # call them) to a JSON file for payload_parser.py to search through.
+    # hostvars[inventory_hostname] on a gather_facts:false localhost run
+    # is, in practice, just "extra vars + a handful of harmless Ansible
+    # internals" - payload_parser.py's recursive string scan ignores
+    # anything that isn't a plausible AAA/Splunk message, so the small
+    # amount of Ansible-internal noise here is harmless.
+    # -----------------------------------------------------------------
+    - name: Write full incoming payload to a JSON file
+      ansible.builtin.copy:
+        dest: "{{ payload_input_file }}"
+        mode: "0600"
+        content: "{{ hostvars[inventory_hostname] | to_nice_json }}"
+
+  tasks:
+    - name: Display run configuration
+      ansible.builtin.debug:
+        msg:
+          - "============================================================"
+          - " Parse EDA Payload"
+          - "============================================================"
+          - "  Python  : {{ parser_python }}"
+          - "  Script  : {{ parser_script }}"
+          - "  Input   : {{ payload_input_file }}"
+          - "  Log     : {{ payload_log_file }}"
+          - "============================================================"
+
+    - name: Build command arguments
+      ansible.builtin.set_fact:
+        _parser_args: >-
+          --input {{ payload_input_file }}
+          {{ ('--llm-instruction ' ~ (eda_llm_instruction | quote)) if eda_llm_instruction else '' }}
+
+    - name: Run EDA payload parser
+      ansible.builtin.command:
+        cmd: "{{ parser_python }} {{ parser_script }} {{ _parser_args | trim }}"
+        chdir: "{{ playbook_dir }}"
+      environment:
+        PYTHONUNBUFFERED: "1"
+        MAAS_API_BASE: "{{ maas_api_base }}"
+        MAAS_MODEL: "{{ maas_model }}"
+        # AAP Custom Credential injection wins when present; falls back to
+        # maas_api_key_fallback (plain extra var) for standalone testing.
+        MAAS_API_KEY: "{{ lookup('env', 'MAAS_API_KEY') | default(maas_api_key_fallback, true) }}"
+      register: _parser_result
+      ignore_errors: true
+
+    - name: Save full output to log file
+      ansible.builtin.copy:
+        content: |
+          ============================================================
+          Parse EDA Payload - Run Log
+          ============================================================
+          Timestamp  : {{ lookup('pipe', 'date --iso-8601=seconds') }}
+          Project    : {{ playbook_dir }}
+          Exit code  : {{ _parser_result.rc }}
+
+          --- STDOUT -------------------------------------------------
+          {{ _parser_result.stdout | default('(no output)') }}
+
+          --- STDERR -------------------------------------------------
+          {{ _parser_result.stderr | default('(no errors)') }}
+        dest: "{{ payload_log_file }}"
+        mode: "0644"
+
+    - name: Show parser output
+      ansible.builtin.debug:
+        msg: "{{ _parser_result.stdout_lines }}"
+      when:
+        - _parser_result.stdout_lines is defined
+        - _parser_result.stdout_lines | length > 0
+
+    - name: Show errors from stderr (if any)
+      ansible.builtin.debug:
+        msg: "{{ _parser_result.stderr_lines }}"
+      when:
+        - _parser_result.stderr_lines is defined
+        - _parser_result.stderr_lines | length > 0
+
+    - name: Fail playbook if the parser script itself crashed
+      ansible.builtin.fail:
+        msg: >-
+          payload_parser.py exited with code {{ _parser_result.rc }}
+          (an actual script error - NOT the same as "nothing relevant
+          found", which exits 0). Check the log: {{ payload_log_file }}
+      when: _parser_result.rc != 0
+
+    # -----------------------------------------------------------------
+    # Extract the EDA_EXTRACTION_RESULT=<json> marker line and expose it
+    # as a job artifact via set_stats - same pattern
+    # network-drift-manager.yaml already uses for its own result, so this
+    # is ready to chain as a Workflow Job Template node immediately.
+    # -----------------------------------------------------------------
+    - name: Locate the marker line containing the extraction result
+      ansible.builtin.set_fact:
+        _extraction_json_line: >-
+          {{
+            (_parser_result.stdout_lines
+              | select('match', '^EDA_EXTRACTION_RESULT=')
+              | list)
+          }}
+
+    - name: Extract the parsed result
+      ansible.builtin.set_fact:
+        _extraction_result: >-
+          {{
+            (_extraction_json_line[0] | regex_replace('^EDA_EXTRACTION_RESULT=', '')) | from_json
+          }}
+      when: _extraction_json_line | length > 0
+
+    - name: Abort - parser produced no EDA_EXTRACTION_RESULT marker
+      ansible.builtin.fail:
+        msg: >-
+          payload_parser.py exited successfully but printed no
+          EDA_EXTRACTION_RESULT= line - this indicates a bug in the
+          script, not a "nothing relevant" case. Check the log:
+          {{ payload_log_file }}
+      when: _extraction_json_line | length == 0
+
+    - name: Display extraction result
+      ansible.builtin.debug:
+        msg:
+          - "extraction_method  : {{ _extraction_result.extraction_method }}"
+          - "extraction_notes   : {{ _extraction_result.extraction_notes }}"
+          - "device_name        : {{ _extraction_result.device_name }}"
+          - "device_attributes  : {{ _extraction_result.device_attributes }}"
+          - "pipeline_apply     : {{ _extraction_result.pipeline_apply }}"
+
+    # Always succeeds (even when nothing relevant was found - that is a
+    # valid, expected outcome, not an error) so a downstream Workflow Job
+    # Template node can run unconditionally on the "success" edge.
+    - name: Expose extraction result as a job artifact (set_stats)
+      ansible.builtin.set_stats:
+        data:
+          device_name: "{{ _extraction_result.device_name }}"
+          device_attributes: "{{ _extraction_result.device_attributes }}"
+          pipeline_apply: "{{ _extraction_result.pipeline_apply }}"
+          eda_extraction_method: "{{ _extraction_result.extraction_method }}"
+          eda_extraction_notes: "{{ _extraction_result.extraction_notes }}"
+        aggregate: false
