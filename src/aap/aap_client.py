@@ -30,6 +30,7 @@ class JobLaunchResult:
     dry_run: bool
     job_template: str
     extra_vars: Dict[str, Any]
+    limit: Optional[str] = None
     job_id: Optional[int] = None
     job_url: Optional[str] = None
     error: Optional[str] = None
@@ -75,34 +76,45 @@ class AAPClient:
         identifier: str,
         extra_vars: Dict[str, Any],
         dry_run: Optional[bool] = None,
+        limit: Optional[str] = None,
     ) -> JobLaunchResult:
         """Launch `identifier` (ID or name) with `extra_vars`.
 
+        `limit` (e.g. the single affected device's hostname) is passed
+        through to AAP's job launch API as-is, so the remediation job only
+        targets that host instead of every host matched by the job
+        template's own default limit/inventory group.
+
         Returns a JobLaunchResult regardless of mode; in dry-run/demo mode
         `launched` is False and job_id/job_url are None, but the plan
-        (job_template + extra_vars) is always populated so callers can
-        report exactly what *would* happen.
+        (job_template + extra_vars + limit) is always populated so callers
+        can report exactly what *would* happen.
         """
         is_dry_run = self.settings.dry_run if dry_run is None else dry_run
 
         if is_dry_run or self.settings.demo_mode:
             logger.info(
-                "[DRY-RUN/DEMO] Would launch AAP job template '%s' with extra_vars=%s",
+                "[DRY-RUN/DEMO] Would launch AAP job template '%s' with extra_vars=%s limit=%s",
                 identifier,
                 extra_vars,
+                limit,
             )
             return JobLaunchResult(
                 launched=False,
                 dry_run=True,
                 job_template=identifier,
                 extra_vars=extra_vars,
+                limit=limit,
             )
 
         try:
             template_id = self._resolve_job_template_id(identifier)
+            payload: Dict[str, Any] = {"extra_vars": extra_vars}
+            if limit:
+                payload["limit"] = limit
             resp = self.session.post(
                 self._api(f"job_templates/{template_id}/launch/"),
-                json={"extra_vars": extra_vars},
+                json=payload,
             )
             resp.raise_for_status()
             body = resp.json()
@@ -113,6 +125,7 @@ class AAPClient:
                 dry_run=False,
                 job_template=identifier,
                 extra_vars=extra_vars,
+                limit=limit,
                 job_id=job_id,
                 job_url=job_url,
             )
@@ -123,5 +136,6 @@ class AAPClient:
                 dry_run=False,
                 job_template=identifier,
                 extra_vars=extra_vars,
+                limit=limit,
                 error=str(exc),
             )

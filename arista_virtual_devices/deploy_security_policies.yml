@@ -12,4 +12,4 @@
         config:
           - afi: ipv4
             acls: "{{ security_acls }}"
-        state: merged
+        state: replaced
