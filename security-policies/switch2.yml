@@ -1,7 +1,0 @@
-# Source of truth for SECURITY settings of switch2.
-# See security-policies/switch1.yml for details — same SECURE_MANAGEMENT
-# policy applies to both switches in this lab.
-acl_rules:
-  - permit tcp any any eq 22
-  - deny tcp any any eq 23
-  - permit ip any any
