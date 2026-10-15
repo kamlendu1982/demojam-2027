@@ -104,10 +104,12 @@
     github_mcp_transport: "http"
     github_mcp_url: "https://api.githubcopilot.com/mcp/"
     github_mcp_command: ""
-    # NOTE: still placeholders - set real values (Extra Variables/Survey)
-    # before relying on GitHub-governed (security) drift checks.
-    github_policy_repo_owner: "your-org"
-    github_policy_repo_name: "network-security-policies"
+    # Security policy source of truth lives in THIS SAME repo (no separate
+    # policy repo needed) - see security-policies/<device>.yml. Confirmed
+    # live: acl_rules there mirrors the ACEs defined in
+    # arista_virtual_devices/vars/all_policies.yml (SECURE_MANAGEMENT ACL).
+    github_policy_repo_owner: "kamlendu1982"
+    github_policy_repo_name: "demojam-2027"
     github_policy_branch: "main"
     github_policy_path_template: "security-policies/{device}.yml"
 
@@ -122,7 +124,12 @@
     aap_url: "https://ec2-3-151-43-126.us-east-2.compute.amazonaws.com/"
     aap_verify_ssl: "false"
     aap_job_template_netbox_remediation: "revert-network-config-from-netbox"
-    aap_job_template_github_remediation: "revert-security-config-from-github"
+    # Re-applies the full security baseline (arista_virtual_devices/
+    # vars/all_policies.yml) to the arista_switches group - see
+    # arista_virtual_devices/deploy_security_policies.yml. This is the AAP
+    # Job Template Agent 4 launches when Agent 3 finds security drift
+    # against the GitHub policy (security-policies/<device>.yml).
+    aap_job_template_github_remediation: "Apply_policies_arista"
     aap_extra_vars_device_key: "device_name"
 
     demo_mode: "false"

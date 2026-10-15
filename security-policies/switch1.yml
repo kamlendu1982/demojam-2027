@@ -1,0 +1,18 @@
+# Source of truth for SECURITY settings of switch1.
+#
+# Lives in GitHub (this repo) — NetBox intentionally does not model these
+# attributes; Agent 3 (SecurityPolicyDriftChecker) fetches this file over
+# the GitHub MCP server to produce the real drift verdict for any
+# attribute Agent 1 classifies as "security" (see
+# config/attribute_classification.yaml).
+#
+# acl_rules must stay in sync with the ACEs defined in
+# arista_virtual_devices/vars/all_policies.yml (SECURE_MANAGEMENT ACL),
+# expressed as the equivalent flat EOS config lines in sequence order:
+#   seq 10 -> permit SSH (tcp/22)
+#   seq 20 -> deny Telnet (tcp/23)
+#   seq 30 -> permit everything else
+acl_rules:
+  - permit tcp any any eq 22
+  - deny tcp any any eq 23
+  - permit ip any any
