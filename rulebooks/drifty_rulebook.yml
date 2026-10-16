@@ -1,0 +1,29 @@
+- name: Splunk EDA Rulebook
+  hosts: localhost
+  gather_facts: false
+  sources:
+    - ansible.eda.event_source:
+
+  rules:
+
+    # -------------------------------------------------------------------------
+    # DEBUG: Catch-all to inspect incoming events during development
+    # -------------------------------------------------------------------------
+
+
+    - name: Create Alert Incident
+      condition: event.payload.alert is defined
+      action:
+        run_workflow_template:
+          name: "Splunk-Policy-Incident"
+          organization: "Default"
+          job_args:
+            extra_vars:
+              alert: "{{ event.payload }}"
+              policy: "{{ event.payload.policy }}"
+
+    - name: Debug - Print All Events
+      condition: event.payload is defined
+      action:
+        debug:
+          var: event
