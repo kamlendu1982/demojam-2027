@@ -13,5 +13,9 @@
     - name: Debug - Print All Events
       condition: event.payload is defined
       action:
-        debug:
-          var: event
+        run_workflow_template:
+          name: "DemoJamNetworkDriftManageent Workflow"
+          organization: "Default"
+          job_args:
+            extra_vars:
+              alert: "{{ event.payload }}"
