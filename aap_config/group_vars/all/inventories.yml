@@ -1,0 +1,55 @@
+---
+controller_inventories:
+  # Was "add_switches". The only definition of the switches.
+  - name: DemoJam | Add Switches
+    description: Arista cEOS switches, from arista_virtual_devices/netbox_devices_inventory
+    organization: "{{ demojam_organization }}"
+
+  # Was "DemoJam". EC2 hosts only; also the inventory for localhost-only
+  # templates (drift pipeline, Apply Config as Code) via implicit localhost.
+  - name: DemoJam | AWS
+    description: EC2 instances in the lab account
+    organization: "{{ demojam_organization }}"
+
+  # Was "NetBox".
+  - name: DemoJam | NetBox
+    description: RHEL host running NetBox (podman-compose)
+    organization: "{{ demojam_organization }}"
+
+  # Was "Container Lab".
+  - name: DemoJam | Container Lab
+    description: Ubuntu host running Containerlab (cEOS switches)
+    organization: "{{ demojam_organization }}"
+
+controller_inventory_sources:
+  - name: DemoJam | Arista Devices
+    inventory: DemoJam | Add Switches
+    organization: "{{ demojam_organization }}"
+    source: scm
+    source_project: DemoJam | DemoJam 2027
+    source_path: arista_virtual_devices/netbox_devices_inventory
+    overwrite: true
+    overwrite_vars: true
+    update_on_launch: true
+
+  # No credential: relies on the AAP host's AWS IAM instance profile, as on
+  # the old instance. Not synced by apply.yml — see README.
+  - name: DemoJam | AWS EC2
+    inventory: DemoJam | AWS
+    organization: "{{ demojam_organization }}"
+    source: ec2
+    overwrite: true
+    update_on_launch: false
+
+controller_hosts:
+  # Named ubuntu-lab-host (not "Container Lab") so the playbook-adjacent
+  # arista_virtual_devices/host_vars/ubuntu-lab-host.yml is picked up.
+  - name: ubuntu-lab-host
+    inventory: DemoJam | Container Lab
+    variables:
+      ansible_host: "{{ demojam_container_lab_ip }}"
+
+  - name: netbox-host
+    inventory: DemoJam | NetBox
+    variables:
+      ansible_host: "{{ demojam_netbox_host_ip }}"

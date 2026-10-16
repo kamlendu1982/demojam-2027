@@ -1,0 +1,15 @@
+---
+# Collections for the AAP Config as Code playbooks in aap_config/.
+#
+# Lives at the repo root on purpose: AAP project sync only auto-installs
+# collections/requirements.yml from the project root.
+#
+# ansible.platform and ansible.controller are Red Hat certified content and
+# come from Automation Hub (see ansible.cfg); the infra.* collections come
+# from Galaxy. In AAP, the organization's Automation Hub Galaxy credential
+# covers the certified ones.
+collections:
+  - name: ansible.platform
+  - name: ansible.controller
+  - name: infra.aap_configuration
+    version: ">=4.10.0,<5.0.0"

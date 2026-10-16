@@ -1,0 +1,27 @@
+---
+# Non-secret, environment-specific values used across the CaC files.
+# Change these (not the object files) when the lab moves.
+
+demojam_organization: Default
+
+demojam_repo_url: https://github.com/kamlendu1982/demojam-2027.git
+# Testing from the feature branch; switch back to main before merging.
+demojam_repo_branch: feat/aap-config-as-code
+
+# Lab hosts (private IPs reachable from the AAP execution nodes)
+demojam_netbox_host_ip: 10.1.0.31
+demojam_container_lab_ip: 10.1.0.32
+demojam_netbox_url: "http://{{ demojam_netbox_host_ip }}:8000"
+demojam_splunk_host: 10.1.0.10
+
+# Non-secret identities (their secrets live in vault.yml)
+demojam_ubuntu_user: ubuntu
+demojam_rhel_user: ec2-user
+demojam_arista_user: admin
+demojam_netbox_admin_user: admin
+demojam_netbox_admin_email: admin@home.com
+
+# Execution environment images
+demojam_supported_ee_image: registry.redhat.io/ansible-automation-platform-27/ee-supported-rhel9:latest
+# Not built from this repo's Containerfile — see aap_config/README.md.
+demojam_drift_ee_image: quay.io/kashekha/aap-drift-manager-ee:latest

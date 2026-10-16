@@ -1,0 +1,92 @@
+---
+controller_templates:
+  - name: DemoJam | Deploy NetBox Community
+    description: Install NetBox with podman-compose on the RHEL host
+    organization: "{{ demojam_organization }}"
+    project: DemoJam | DemoJam 2027
+    playbook: netbox/deploy_netbox_community.yml
+    inventory: DemoJam | NetBox
+    execution_environment: DemoJam | Supported EE
+    credentials:
+      - DemoJam | RHEL SSH
+      - DemoJam | NetBox Admin
+
+  - name: DemoJam | Deploy Arista Lab
+    description: Install Containerlab and start the cEOS switches on the Ubuntu host
+    organization: "{{ demojam_organization }}"
+    project: DemoJam | DemoJam 2027
+    playbook: arista_virtual_devices/deploy_arista_lab.yml
+    inventory: DemoJam | Container Lab
+    execution_environment: DemoJam | Supported EE
+    credentials:
+      - DemoJam | Ubuntu SSH
+
+  # Runs on localhost (NetBox REST API); only reads the switch group.
+  - name: DemoJam | NetBox Onboard Switches
+    description: Register the switches as devices in NetBox
+    organization: "{{ demojam_organization }}"
+    project: DemoJam | DemoJam 2027
+    playbook: arista_virtual_devices/netbox_onboard_switches.yml
+    inventory: DemoJam | Add Switches
+    execution_environment: DemoJam | Supported EE
+    credentials:
+      - DemoJam | NetBox API
+
+  - name: DemoJam | Configure Splunk Logging
+    description: Forward switch syslog and AAA accounting to Splunk
+    organization: "{{ demojam_organization }}"
+    project: DemoJam | DemoJam 2027
+    playbook: arista_virtual_devices/configure_splunk_logging.yml
+    inventory: DemoJam | Add Switches
+    execution_environment: DemoJam | Supported EE
+    credentials:
+      - DemoJam | Ubuntu SSH
+      - DemoJam | Arista Switch Login
+    extra_vars:
+      splunk_host: "{{ demojam_splunk_host }}"
+      splunk_port: 514
+      splunk_logging_source_interface: Management0
+
+  - name: DemoJam | Push Security Policies Network
+    description: Push the ACLs in arista_virtual_devices/vars/all_policies.yml
+    organization: "{{ demojam_organization }}"
+    project: DemoJam | DemoJam 2027
+    playbook: arista_virtual_devices/deploy_security_policies.yml
+    inventory: DemoJam | Add Switches
+    limit: arista_switches
+    execution_environment: DemoJam | Supported EE
+    credentials:
+      - DemoJam | Ubuntu SSH
+      - DemoJam | Arista Switch Login
+
+  # Extra vars kept as on the old instance. With pipeline_apply: true,
+  # Agent 2 launches "revert-network-config-from-netbox", which is not
+  # created yet — see README "Known gaps".
+  - name: DemoJam | Network Drift Management
+    description: Deterministic 4-agent drift pipeline (run_pipeline.py)
+    organization: "{{ demojam_organization }}"
+    project: DemoJam | DemoJam 2027
+    playbook: network-drift-manager.yaml
+    inventory: DemoJam | AWS
+    execution_environment: DemoJam | Network Drift EE
+    credentials:
+      - DemoJam | NetBox API
+      - DemoJam | Network Drift Secrets
+    extra_vars:
+      device_name: switch1
+      device_attributes:
+        dns_servers:
+          - 10.10.0.53
+      pipeline_apply: true
+
+  - name: DemoJam | Apply Config as Code
+    description: Reconcile this AAP instance with aap_config/ (launched by GitHub push webhook)
+    organization: "{{ demojam_organization }}"
+    project: DemoJam | DemoJam 2027
+    playbook: aap_config/apply.yml
+    inventory: DemoJam | AWS
+    execution_environment: DemoJam | Supported EE
+    credentials:
+      - DemoJam | CaC AAP Admin
+      - DemoJam | CaC Vault
+    webhook_service: github

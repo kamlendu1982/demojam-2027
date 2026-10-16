@@ -1,0 +1,14 @@
+---
+# How infra.aap_configuration reaches AAP.
+#
+# Laptop bootstrap: values come from vault.yml.
+# Self-apply in AAP: the "DemoJam | CaC AAP Admin" credential (type Red Hat
+# Ansible Automation Platform) injects aap_hostname / aap_username /
+# aap_password as extra vars, which override these.
+aap_hostname: "{{ vault_aap_hostname }}"
+aap_username: "{{ vault_aap_username }}"
+aap_password: "{{ vault_aap_password }}"
+aap_validate_certs: false
+
+# Never print object payloads (they contain credential inputs).
+aap_configuration_secure_logging: true
