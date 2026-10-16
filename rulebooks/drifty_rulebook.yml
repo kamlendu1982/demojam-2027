@@ -10,11 +10,11 @@
     # DEBUG: Catch-all to inspect incoming events during development
     # -------------------------------------------------------------------------
 
-    - name: Debug - Print All Events
+    - name: Send to Workflow
       condition: event.payload is defined
       action:
         run_workflow_template:
-          name: "DemoJamNetworkDriftManageent Workflow"
+          name: "DemoJamNetworkDriftManager"
           organization: "Default"
           job_args:
             extra_vars:
