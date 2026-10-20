@@ -17,5 +17,5 @@
           name: "DemoJamNetworkDriftManager"
           organization: "Default"
           job_args:
-            extra_vars:
-              alert: "{{ event.payload }}"
+            extra_vars: "{{ event.meta }}"
+            webhook_payload: "{{ event.payload }}"
