@@ -104,12 +104,18 @@
     github_mcp_transport: "http"
     github_mcp_url: "https://api.githubcopilot.com/mcp/"
     github_mcp_command: ""
-    # NOTE: still placeholders - set real values (Extra Variables/Survey)
-    # before relying on GitHub-governed (security) drift checks.
-    github_policy_repo_owner: "your-org"
-    github_policy_repo_name: "network-security-policies"
+    # Security policy source of truth lives in THIS SAME repo (no separate
+    # policy repo needed) - a SINGLE file shared across all Arista
+    # switches (no {device} substitution - deploy_security_policies.yml /
+    # Apply_policies_arista applies the same policy to the whole
+    # arista_switches group, so drift detection checks against the same
+    # shared source). GitHubMCPClient._normalize_policy() converts this
+    # file's native `security_acls` ACE schema into the flat
+    # `acl_rules: [...]` list Agent 3 compares against.
+    github_policy_repo_owner: "kamlendu1982"
+    github_policy_repo_name: "demojam-2027"
     github_policy_branch: "main"
-    github_policy_path_template: "security-policies/{device}.yml"
+    github_policy_path_template: "arista_virtual_devices/vars/all_policies.yml"
 
     # This MUST be the AAP instance this playbook is actually running on
     # (i.e. the same instance whose Job Template launched this job) -
@@ -122,7 +128,12 @@
     aap_url: "https://ip-10-1-0-20.us-east-2.compute.internal"
     aap_verify_ssl: "false"
     aap_job_template_netbox_remediation: "revert-network-config-from-netbox"
-    aap_job_template_github_remediation: "revert-security-config-from-github"
+    # Re-applies the full security baseline (arista_virtual_devices/
+    # vars/all_policies.yml) to the arista_switches group - see
+    # arista_virtual_devices/deploy_security_policies.yml. This is the AAP
+    # Job Template Agent 4 launches when Agent 3 finds security drift
+    # against the GitHub policy (security-policies/<device>.yml).
+    aap_job_template_github_remediation: "Apply_policies_arista"
     aap_extra_vars_device_key: "device_name"
 
     demo_mode: "false"

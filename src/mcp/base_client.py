@@ -68,18 +68,30 @@ class BaseMCPClient:
         if not self.url:
             raise MCPClientError(f"{self.name}: MCP URL is not configured")
 
-        factory = None
+        kwargs: Dict[str, Any] = {
+            "url": self.url,
+            "headers": self._auth_headers(),
+        }
+
+        # Only override httpx_client_factory when we actually need a
+        # custom one (verify_ssl=False). streamablehttp_client's own
+        # default (create_mcp_http_client) is a real, working callable -
+        # explicitly passing httpx_client_factory=None here (the previous
+        # bug) overrides that default with None, which the library then
+        # tries to call directly (`httpx_client_factory(...)`), raising
+        # "'NoneType' object is not callable". Confirmed live: this broke
+        # every real (non-demo) GitHub MCP call, since GitHubMCPClient
+        # always sets verify_ssl=True - NetBox never hit this because it
+        # uses the stdio transport, not http.
         if not self.verify_ssl:
             import httpx
 
-            def factory(headers, timeout, **kwargs):  # noqa: ANN001
-                return httpx.AsyncClient(headers=headers, timeout=timeout, verify=False, **kwargs)
+            def factory(headers, timeout, **kw):  # noqa: ANN001
+                return httpx.AsyncClient(headers=headers, timeout=timeout, verify=False, **kw)
 
-        return streamablehttp_client(
-            url=self.url,
-            headers=self._auth_headers(),
-            httpx_client_factory=factory,
-        )
+            kwargs["httpx_client_factory"] = factory
+
+        return streamablehttp_client(**kwargs)
 
     async def _stdio_session(self):
         import os
@@ -126,14 +138,47 @@ class BaseMCPClient:
                 await session.initialize()
                 result = await session.call_tool(tool_name, arguments=args or {})
                 if result.content:
+                    # Prefer EmbeddedResource content. Confirmed live: GitHub's
+                    # hosted get_file_contents tool returns TWO content items -
+                    # a short TextContent status message first (e.g.
+                    # "successfully downloaded text file (SHA: ...)"), followed
+                    # by an EmbeddedResource whose `.resource.text` (or
+                    # `.resource.blob`, base64, for binary files) holds the
+                    # actual file body. The previous code returned on the
+                    # FIRST item with a `.text` attribute, which matched the
+                    # status message's TextContent.text and never reached the
+                    # real file content.
+                    for item in result.content:
+                        resource = getattr(item, "resource", None)
+                        if resource is None:
+                            continue
+                        resource_text = getattr(resource, "text", None)
+                        if resource_text:
+                            return self._maybe_json(resource_text)
+                        resource_blob = getattr(resource, "blob", None)
+                        if resource_blob:
+                            import base64
+
+                            decoded = base64.b64decode(resource_blob).decode(
+                                "utf-8", errors="replace"
+                            )
+                            return self._maybe_json(decoded)
+
+                    # Fall back to plain TextContent items (most tools only
+                    # return these, e.g. JSON API responses with no
+                    # embedded-resource wrapping).
                     for item in result.content:
                         text = getattr(item, "text", None)
                         if text:
-                            try:
-                                return json.loads(text)
-                            except (json.JSONDecodeError, ValueError):
-                                return text
+                            return self._maybe_json(text)
                 return {}
+
+    @staticmethod
+    def _maybe_json(text: str) -> Any:
+        try:
+            return json.loads(text)
+        except (json.JSONDecodeError, ValueError):
+            return text
 
     # ── sync wrappers ───────────────────────────────────────────────────
 

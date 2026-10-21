@@ -2,10 +2,13 @@
 
 Real (non-demo) mode calls the official GitHub MCP server's
 `get_file_contents` tool (this exact tool name is exposed by GitHub's
-hosted and self-hosted `github-mcp-server`) to fetch a per-device YAML
-policy file from GITHUB_POLICY_REPO_OWNER/GITHUB_POLICY_REPO_NAME at
-GITHUB_POLICY_BRANCH, using GITHUB_POLICY_PATH_TEMPLATE with `{device}`
-substituted.
+hosted and self-hosted `github-mcp-server`) to fetch a security policy
+YAML file from GITHUB_POLICY_REPO_OWNER/GITHUB_POLICY_REPO_NAME at
+GITHUB_POLICY_BRANCH, using GITHUB_POLICY_PATH_TEMPLATE (`{device}` is
+substituted if present, but the path is normally a single file SHARED
+across all devices - e.g.
+arista_virtual_devices/vars/all_policies.yml - rather than a separate
+file per device).
 
 Demo mode (DEMO_MODE=true) reads the same YAML shape from
 demo_fixtures/github/security-policies/<device>.yml instead.
@@ -15,7 +18,7 @@ import base64
 import binascii
 import logging
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import yaml
 
@@ -57,7 +60,8 @@ class GitHubMCPClient:
                 f"No demo security policy fixture found for '{device_name}' "
                 f"(expected {file_path})"
             )
-        return yaml.safe_load(file_path.read_text()) or {}
+        policy = yaml.safe_load(file_path.read_text()) or {}
+        return self._normalize_policy(policy)
 
     def _get_policy_live(self, device_name: str) -> Dict[str, Any]:
         assert self._mcp is not None
@@ -82,7 +86,55 @@ class GitHubMCPClient:
             raise GitHubPolicyNotFound(
                 f"Security policy file not found for '{device_name}' at {path}"
             )
-        return yaml.safe_load(content) or {}
+        policy = yaml.safe_load(content) or {}
+        return self._normalize_policy(policy)
+
+    @classmethod
+    def _normalize_policy(cls, policy: Dict[str, Any]) -> Dict[str, Any]:
+        """Adapt the richer `security_acls` ACE schema (the native format
+        used by arista_virtual_devices/vars/all_policies.yml /
+        deploy_security_policies.yml) into the flat `acl_rules: [list of
+        EOS CLI lines]` shape Agent 3 compares against - so the shared
+        policy file can be used as-is for both device deployment AND drift
+        detection, with no duplicated content.
+
+        No-op (returns `policy` unchanged) if `security_acls` isn't
+        present, so flat `acl_rules`-shaped policy files (e.g. existing
+        demo fixtures) keep working untouched.
+        """
+        if "security_acls" not in policy:
+            return policy
+
+        lines: List[str] = []
+        for acl in policy.get("security_acls") or []:
+            aces = sorted(acl.get("aces") or [], key=lambda a: a.get("sequence", 0))
+            lines.extend(cls._ace_to_cli_line(ace) for ace in aces)
+
+        return {**policy, "acl_rules": lines}
+
+    @staticmethod
+    def _ace_to_cli_line(ace: Dict[str, Any]) -> str:
+        """Render one ACE dict (all_policies.yml's schema) as the
+        equivalent flat EOS CLI line, e.g.
+        {"grant": "deny", "protocol": "tcp", "destination":
+         {"any": True, "port_protocol": {"eq": "23"}}}
+        -> "deny tcp any any eq 23"
+
+        Only supports `any` source/destination today (the only form this
+        project's ACLs currently use) - extend here if host/network
+        matches are ever added to all_policies.yml.
+        """
+        grant = ace.get("grant", "permit")
+        protocol = ace.get("protocol", "ip")
+        source = "any" if (ace.get("source") or {}).get("any") else "any"
+        destination = ace.get("destination") or {}
+        dest_token = "any" if destination.get("any") else "any"
+
+        line = f"{grant} {protocol} {source} {dest_token}"
+        port = (destination.get("port_protocol") or {}).get("eq")
+        if port:
+            line += f" eq {port}"
+        return line
 
     @staticmethod
     def _extract_content(result: Any) -> Optional[str]:

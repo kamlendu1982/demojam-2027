@@ -1,0 +1,34 @@
+---
+# group_vars/all_policies.yml
+
+# Define your Arista ACLs in pure YAML format
+security_acls:
+  - name: SECURE_MANAGEMENT
+    aces:
+      - sequence: 10
+        grant: permit
+        protocol: tcp
+        source:
+          any: true
+        destination:
+          any: true
+          port_protocol:
+            eq: "22"   # Allow SSH (Nested under destination)
+          
+      - sequence: 20
+        grant: deny
+        protocol: tcp
+        source:
+          any: true
+        destination:
+          any: true
+          port_protocol:
+            eq: "23"   # Block Telnet (Nested under destination)
+          
+      - sequence: 30
+        grant: permit
+        protocol: ip
+        source:
+          any: true
+        destination:
+          any: true

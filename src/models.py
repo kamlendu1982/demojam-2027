@@ -73,6 +73,7 @@ class RemediationResult(BaseModel):
     attributes_remediated: List[str] = Field(default_factory=list)
     extra_vars: Dict[str, Any] = Field(default_factory=dict)
     job_template: str = ""
+    limit: Optional[str] = None
     launched: bool = False
     dry_run: bool = True
     job_id: Optional[int] = None

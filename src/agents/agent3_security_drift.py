@@ -8,13 +8,58 @@ those attributes.
 """
 
 import logging
-from typing import Dict, List
+import re
+from typing import Dict, List, Optional
 
 from src.mcp.github_client import GitHubMCPClient, GitHubPolicyNotFound
 from src.models import Agent1Response, Agent3Response, AttributeResult
 from src import llm
 
 logger = logging.getLogger(__name__)
+
+_ACL_PORT_RE = re.compile(r"\beq\s+(\S+)")
+
+
+def _acl_rule_key(line: str) -> str:
+    """Stable identity key for one flat ACL rule CLI line (e.g. "deny tcp
+    any any eq 23"), used to match an observed rule to its corresponding
+    policy rule WITHOUT needing an explicit sequence number.
+
+    Uses the rule's destination port ("eq <port>") when present - every
+    ACE in this project's ACLs has a unique port (22, 23, ...) - and falls
+    back to the full line for port-less entries (e.g. the catch-all
+    "permit ip any any").
+    """
+    match = _ACL_PORT_RE.search(line)
+    return f"eq:{match.group(1)}" if match else line.strip()
+
+
+def _diff_acl_rules(expected: List[str], observed: List[str]) -> List[str]:
+    """Compare ACL rule lines by identity, not by list length/position.
+
+    This is what makes a PARTIAL `observed` list work correctly - e.g. a
+    real Splunk AAA accounting event only ever reports the single rule
+    that was just changed ("cmd=20 permit tcp any any eq 23"), never the
+    whole ACL. Comparing a 1-item observed list against the full 3-item
+    policy list with plain `!=` would always report drift, even when that
+    one rule already matches policy. Here, each observed rule is matched
+    to its corresponding policy rule by identity (see _acl_rule_key) and
+    only THAT pair is compared - rules not mentioned in `observed` are
+    simply not checked (we only verify what was actually reported).
+
+    Returns a list of human-readable mismatch descriptions - empty if
+    every observed rule matches its corresponding expected rule.
+    """
+    expected_by_key = {_acl_rule_key(line): line for line in expected}
+    mismatches: List[str] = []
+    for obs_line in observed:
+        key = _acl_rule_key(obs_line)
+        exp_line = expected_by_key.get(key)
+        if exp_line is None:
+            mismatches.append(f"'{obs_line}' is not defined in the GitHub policy")
+        elif exp_line != obs_line:
+            mismatches.append(f"'{obs_line}' should be '{exp_line}'")
+    return mismatches
 
 
 class SecurityPolicyDriftChecker:
@@ -70,7 +115,32 @@ class SecurityPolicyDriftChecker:
                 continue
 
             expected_value = policy[attr_name]
-            has_drift = expected_value != observed_value
+
+            mismatches: Optional[List[str]] = None
+            if (
+                isinstance(expected_value, list)
+                and isinstance(observed_value, list)
+                and all(isinstance(x, str) for x in expected_value)
+                and all(isinstance(x, str) for x in observed_value)
+            ):
+                # Flat list-of-CLI-line attributes (e.g. acl_rules): compare
+                # rule-by-rule so a partial observed list (a single changed
+                # line, as a real Splunk event would report) is checked
+                # correctly instead of always mismatching on length/order.
+                mismatches = _diff_acl_rules(expected_value, observed_value)
+                has_drift = bool(mismatches)
+            else:
+                has_drift = expected_value != observed_value
+
+            if has_drift and mismatches:
+                message = "Value differs from the GitHub security policy source of truth: " + "; ".join(
+                    mismatches
+                )
+            elif has_drift:
+                message = "Value differs from the GitHub security policy source of truth."
+            else:
+                message = "Matches GitHub security policy. No drift."
+
             results[attr_name] = AttributeResult(
                 attribute=attr_name,
                 category="security",
@@ -78,11 +148,7 @@ class SecurityPolicyDriftChecker:
                 source_of_truth="github",
                 expected_value=expected_value,
                 observed_value=observed_value,
-                message=(
-                    "Value differs from the GitHub security policy source of truth."
-                    if has_drift
-                    else "Matches GitHub security policy. No drift."
-                ),
+                message=message,
             )
             if has_drift:
                 remediation.append(attr_name)

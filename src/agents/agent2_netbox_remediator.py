@@ -50,6 +50,7 @@ class NetBoxRemediator:
             settings.aap_job_template_netbox_remediation,
             extra_vars,
             dry_run=dry_run,
+            limit=device,
         )
 
         return RemediationResult(
@@ -59,6 +60,7 @@ class NetBoxRemediator:
             attributes_remediated=attrs,
             extra_vars=extra_vars,
             job_template=launch.job_template,
+            limit=launch.limit,
             launched=launch.launched,
             dry_run=launch.dry_run,
             job_id=launch.job_id,
