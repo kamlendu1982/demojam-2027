@@ -101,18 +101,21 @@
         chdir: "{{ netbox_clone_dir }}"
       register: netbox_token_result
       changed_when: false
-      # Deliberately NOT no_log here: on success, Ansible doesn't print a
-      # command task's stdout unless verbosity is raised, so the token
-      # isn't exposed in the normal job log either way - but on FAILURE,
-      # no_log would censor the real error/traceback too (confirmed live:
-      # job 1240 failed with output fully "censored", with no way to see
-      # the actual cause). no_log is kept on the two tasks below instead,
-      # which are the ones that actually hold/expose the secret value.
+      # NOTE: deliberately no no_log anywhere in this token-bootstrap
+      # sequence (this task, the set_fact below, and the set_stats below).
+      # no_log was tried here twice (job 1240, job 1249) and both times it
+      # censored a real FAILURE's error message with no way to diagnose
+      # it, while providing no real protection on success: none of
+      # command/set_fact/set_stats print their resulting value to the job
+      # log by default at normal verbosity anyway (only "ok"/"changed" is
+      # shown) - the real protection is AAP RBAC on who can view this
+      # job's results/artifacts, which no_log doesn't change either way
+      # (set_stats data always lands in job artifacts for the next
+      # workflow node to consume, no_log or not).
 
     - name: Extract the token value from script output
       ansible.builtin.set_fact:
         netbox_token: "{{ netbox_token_result.stdout_lines | select('match', '^[0-9a-f]{40}$') | list | first }}"
-      no_log: true
 
     # Exposes netbox_token to the next node in a Workflow Job Template -
     # netbox_onboard_switches.yml already expects an extra var named
@@ -123,7 +126,6 @@
         data:
           netbox_token: "{{ netbox_token }}"
         aggregate: false
-      no_log: true
 
     - name: Display post-installation instructions
       ansible.builtin.debug:
