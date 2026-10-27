@@ -5,6 +5,13 @@
   vars:
     netbox_clone_dir: /opt/netbox-docker
     netbox_port: 8000
+    # Default so this playbook doesn't fail when only netbox_admin_user /
+    # netbox_admin_pass are supplied (as job 1105 did) - override via
+    # extra var if a real address is needed.
+    netbox_admin_email: "admin@example.com"
+    # Stable key so the token get_or_create below reuses the same token on
+    # every re-run instead of creating a new one each time.
+    netbox_token_description: "ansible-automation"
 
   tasks:
     - name: Ensure EPEL repository is enabled (provides podman-compose)
@@ -75,6 +82,44 @@
         - superuser_result.rc != 0
         - "'already taken' not in superuser_result.stderr and 'already exists' not in superuser_result.stderr"
       changed_when: "'Superuser created successfully' in superuser_result.stdout"
+
+    # Bootstraps an API token for netbox_onboard_switches.yml (and anything
+    # else chained after this one in a Workflow Job Template) - no token
+    # exists yet at this point, so this goes through the Django ORM
+    # directly rather than the NetBox REST API. get_or_create on
+    # (user, description) makes this idempotent: re-running this playbook
+    # reuses the same token instead of creating a new one every time.
+    - name: Create or fetch NetBox API token for admin user
+      ansible.builtin.command:
+        cmd: >
+          podman-compose exec -T netbox /opt/netbox/netbox/manage.py shell -c "
+          from django.contrib.auth import get_user_model;
+          from users.models import Token;
+          user = get_user_model().objects.get(username='{{ netbox_admin_user }}');
+          token, _ = Token.objects.get_or_create(user=user, description='{{ netbox_token_description }}');
+          print(token.key)
+          "
+      args:
+        chdir: "{{ netbox_clone_dir }}"
+      register: netbox_token_result
+      changed_when: false
+      no_log: true
+
+    - name: Extract the token value from script output
+      ansible.builtin.set_fact:
+        netbox_token: "{{ netbox_token_result.stdout_lines | select('match', '^[0-9a-f]{40}$') | list | first }}"
+      no_log: true
+
+    # Exposes netbox_token to the next node in a Workflow Job Template -
+    # netbox_onboard_switches.yml already expects an extra var named
+    # exactly "netbox_token" (see its "Fail early if NetBox API token was
+    # not supplied" task), so no changes are needed there.
+    - name: Expose NetBox token as a job artifact (set_stats)
+      ansible.builtin.set_stats:
+        data:
+          netbox_token: "{{ netbox_token }}"
+        aggregate: false
+      no_log: true
 
     - name: Display post-installation instructions
       ansible.builtin.debug:
