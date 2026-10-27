@@ -60,10 +60,15 @@
         msg: "No hosts found in inventory group '{{ netbox_switch_group }}'."
       when: groups[netbox_switch_group] is not defined or groups[netbox_switch_group] | length == 0
 
+    # "Bearer nbt_<key>.<secret>" is NetBox 4.5+'s v2 token auth scheme -
+    # the older "Token <40-char-hex>" (v1) scheme is deprecated as of
+    # NetBox 4.6 and removed in 5.0. netbox_token (from
+    # deploy_netbox_community.yml's set_stats) already includes the
+    # "nbt_" prefix, so this just adds the "Bearer " scheme prefix.
     - name: Set common NetBox API request headers
       ansible.builtin.set_fact:
         netbox_headers:
-          Authorization: "Token {{ netbox_token }}"
+          Authorization: "Bearer {{ netbox_token }}"
           Content-Type: "application/json"
 
     # ---- Manufacturer (Arista) ----

@@ -86,17 +86,37 @@
     # Bootstraps an API token for netbox_onboard_switches.yml (and anything
     # else chained after this one in a Workflow Job Template) - no token
     # exists yet at this point, so this goes through the Django ORM
-    # directly rather than the NetBox REST API. get_or_create on
-    # (user, description) makes this idempotent: re-running this playbook
-    # reuses the same token instead of creating a new one every time.
-    - name: Create or fetch NetBox API token for admin user
+    # directly rather than the NetBox REST API.
+    #
+    # NOT using get_or_create here (confirmed via NetBox's own source:
+    # github.com/netbox-community/netbox/blob/.../users/models/tokens.py,
+    # and job 1278's live "Invalid v1 token" 403): NetBox 4.5+ "v2" tokens
+    # store only a 12-char public "key" plus an HMAC digest of the secret -
+    # the actual plaintext secret is generated once at creation and is
+    # NEVER retrievable again afterward, by design (same model as a GitHub
+    # PAT). Re-fetching an EXISTING token row (what get_or_create did) can
+    # only ever return the public key, never a usable secret - which is
+    # exactly why "Invalid v1 token" came back in job 1278: token.key alone
+    # isn't a valid credential at all, v1 or v2.
+    #
+    # So: delete any previous "ansible-automation" token and create a
+    # fresh one on every run instead. This is fine for our use case - the
+    # token is consumed immediately by the very next node in the same
+    # Workflow Job Template run, not expected to stay stable across
+    # separate runs.
+    #
+    # v2 token auth header format is "Bearer nbt_<key>.<secret>" (not the
+    # old v1 "Token <40-char-hex>" scheme) - netbox_onboard_switches.yml's
+    # Authorization header was updated to match.
+    - name: Create a fresh NetBox API token for admin user
       ansible.builtin.command:
         cmd: >
           podman-compose exec -T netbox /opt/netbox/netbox/manage.py shell -c "from django.contrib.auth import get_user_model;
           from users.models import Token;
           user = get_user_model().objects.get(username='{{ netbox_admin_user }}');
-          token, _ = Token.objects.get_or_create(user=user, description='{{ netbox_token_description }}');
-          print('NETBOX_TOKEN_KEY=' + token.key)"
+          Token.objects.filter(user=user, description='{{ netbox_token_description }}').delete();
+          token = Token.objects.create(user=user, description='{{ netbox_token_description }}');
+          print('NETBOX_TOKEN_KEY=nbt_' + token.key + '.' + token.token)"
       args:
         chdir: "{{ netbox_clone_dir }}"
       register: netbox_token_result
