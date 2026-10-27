@@ -5,6 +5,13 @@
   vars:
     netbox_clone_dir: /opt/netbox-docker
     netbox_port: 8000
+    # Default so this playbook doesn't fail when only netbox_admin_user /
+    # netbox_admin_pass are supplied (as job 1105 did) - override via
+    # extra var if a real address is needed.
+    netbox_admin_email: "admin@example.com"
+    # Stable key so the token get_or_create below reuses the same token on
+    # every re-run instead of creating a new one each time.
+    netbox_token_description: "ansible-automation"
 
   tasks:
     - name: Ensure EPEL repository is enabled (provides podman-compose)
@@ -75,6 +82,96 @@
         - superuser_result.rc != 0
         - "'already taken' not in superuser_result.stderr and 'already exists' not in superuser_result.stderr"
       changed_when: "'Superuser created successfully' in superuser_result.stdout"
+
+    # Bootstraps an API token for netbox_onboard_switches.yml (and anything
+    # else chained after this one in a Workflow Job Template) - no token
+    # exists yet at this point, so this goes through the Django ORM
+    # directly rather than the NetBox REST API.
+    #
+    # NOT using get_or_create here (confirmed via NetBox's own source:
+    # github.com/netbox-community/netbox/blob/.../users/models/tokens.py,
+    # and job 1278's live "Invalid v1 token" 403): NetBox 4.5+ "v2" tokens
+    # store only a 12-char public "key" plus an HMAC digest of the secret -
+    # the actual plaintext secret is generated once at creation and is
+    # NEVER retrievable again afterward, by design (same model as a GitHub
+    # PAT). Re-fetching an EXISTING token row (what get_or_create did) can
+    # only ever return the public key, never a usable secret - which is
+    # exactly why "Invalid v1 token" came back in job 1278: token.key alone
+    # isn't a valid credential at all, v1 or v2.
+    #
+    # So: delete any previous "ansible-automation" token and create a
+    # fresh one on every run instead. This is fine for our use case - the
+    # token is consumed immediately by the very next node in the same
+    # Workflow Job Template run, not expected to stay stable across
+    # separate runs.
+    #
+    # v2 token auth header format is "Bearer nbt_<key>.<secret>" (not the
+    # old v1 "Token <40-char-hex>" scheme) - netbox_onboard_switches.yml's
+    # Authorization header was updated to match.
+    - name: Create a fresh NetBox API token for admin user
+      ansible.builtin.command:
+        cmd: >
+          podman-compose exec -T netbox /opt/netbox/netbox/manage.py shell -c "from django.contrib.auth import get_user_model;
+          from users.models import Token;
+          user = get_user_model().objects.get(username='{{ netbox_admin_user }}');
+          Token.objects.filter(user=user, description='{{ netbox_token_description }}').delete();
+          token = Token.objects.create(user=user, description='{{ netbox_token_description }}');
+          print('NETBOX_TOKEN_KEY=nbt_' + token.key + '.' + token.token)"
+      args:
+        chdir: "{{ netbox_clone_dir }}"
+      register: netbox_token_result
+      changed_when: false
+      # NOTE: deliberately no no_log anywhere in this token-bootstrap
+      # sequence (this task, the set_fact below, and the set_stats below).
+      # no_log was tried here twice (job 1240, job 1249) and both times it
+      # censored a real FAILURE's error message with no way to diagnose
+      # it, while providing no real protection on success: none of
+      # command/set_fact/set_stats print their resulting value to the job
+      # log by default at normal verbosity anyway (only "ok"/"changed" is
+      # shown) - the real protection is AAP RBAC on who can view this
+      # job's results/artifacts, which no_log doesn't change either way
+      # (set_stats data always lands in job artifacts for the next
+      # workflow node to consume, no_log or not).
+
+    # NOTE: don't assume the token's length/character set (NetBox's actual
+    # key format turned out to be a short mixed-case string here, not the
+    # 40-char lowercase hex that older DRF tokens use elsewhere -
+    # confirmed live in job 1253, which is why the original regex
+    # '^[0-9a-f]{40}$' matched nothing and failed with "No first item,
+    # sequence was empty."). Using an unambiguous marker prefix instead -
+    # same pattern as EDA_EXTRACTION_RESULT=/PIPELINE_JSON_RESULT=
+    # elsewhere in this repo - sidesteps that assumption entirely.
+    - name: Extract the token value from script output
+      ansible.builtin.set_fact:
+        netbox_token: >-
+          {{ (netbox_token_result.stdout_lines
+              | select('match', '^NETBOX_TOKEN_KEY=')
+              | list | first)
+             | regex_replace('^NETBOX_TOKEN_KEY=', '') }}
+
+    # inventory_hostname is exactly the host Ansible just connected to and
+    # deployed NetBox on in this very play - using it here (rather than a
+    # hardcoded address) means netbox_url is always correct for whichever
+    # VM this playbook actually ran against, instead of going stale the
+    # next time NetBox is deployed on a different host (confirmed live:
+    # job 1259 failed because netbox_onboard_switches.yml had a hardcoded
+    # URL pointing at a VM that was no longer the current NetBox host).
+    - name: Compute the NetBox URL for this deployment
+      ansible.builtin.set_fact:
+        netbox_url: "http://{{ inventory_hostname }}:{{ netbox_port }}"
+
+    # Exposes netbox_token and netbox_url to the next node in a Workflow
+    # Job Template - netbox_onboard_switches.yml already expects an extra
+    # var named exactly "netbox_token" (see its "Fail early if NetBox API
+    # token was not supplied" task) and now also "netbox_url" (its
+    # formerly-hardcoded default was removed), so no further changes are
+    # needed there beyond what's already been done.
+    - name: Expose NetBox token and URL as job artifacts (set_stats)
+      ansible.builtin.set_stats:
+        data:
+          netbox_token: "{{ netbox_token }}"
+          netbox_url: "{{ netbox_url }}"
+        aggregate: false
 
     - name: Display post-installation instructions
       ansible.builtin.debug:
