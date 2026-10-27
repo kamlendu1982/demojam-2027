@@ -96,7 +96,7 @@
           from users.models import Token;
           user = get_user_model().objects.get(username='{{ netbox_admin_user }}');
           token, _ = Token.objects.get_or_create(user=user, description='{{ netbox_token_description }}');
-          print(token.key)"
+          print('NETBOX_TOKEN_KEY=' + token.key)"
       args:
         chdir: "{{ netbox_clone_dir }}"
       register: netbox_token_result
@@ -113,9 +113,21 @@
       # (set_stats data always lands in job artifacts for the next
       # workflow node to consume, no_log or not).
 
+    # NOTE: don't assume the token's length/character set (NetBox's actual
+    # key format turned out to be a short mixed-case string here, not the
+    # 40-char lowercase hex that older DRF tokens use elsewhere -
+    # confirmed live in job 1253, which is why the original regex
+    # '^[0-9a-f]{40}$' matched nothing and failed with "No first item,
+    # sequence was empty."). Using an unambiguous marker prefix instead -
+    # same pattern as EDA_EXTRACTION_RESULT=/PIPELINE_JSON_RESULT=
+    # elsewhere in this repo - sidesteps that assumption entirely.
     - name: Extract the token value from script output
       ansible.builtin.set_fact:
-        netbox_token: "{{ netbox_token_result.stdout_lines | select('match', '^[0-9a-f]{40}$') | list | first }}"
+        netbox_token: >-
+          {{ (netbox_token_result.stdout_lines
+              | select('match', '^NETBOX_TOKEN_KEY=')
+              | list | first)
+             | regex_replace('^NETBOX_TOKEN_KEY=', '') }}
 
     # Exposes netbox_token to the next node in a Workflow Job Template -
     # netbox_onboard_switches.yml already expects an extra var named
