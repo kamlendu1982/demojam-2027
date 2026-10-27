@@ -103,7 +103,13 @@
         chdir: "{{ netbox_clone_dir }}"
       register: netbox_token_result
       changed_when: false
-      no_log: true
+      # Deliberately NOT no_log here: on success, Ansible doesn't print a
+      # command task's stdout unless verbosity is raised, so the token
+      # isn't exposed in the normal job log either way - but on FAILURE,
+      # no_log would censor the real error/traceback too (confirmed live:
+      # job 1240 failed with output fully "censored", with no way to see
+      # the actual cause). no_log is kept on the two tasks below instead,
+      # which are the ones that actually hold/expose the secret value.
 
     - name: Extract the token value from script output
       ansible.builtin.set_fact:
