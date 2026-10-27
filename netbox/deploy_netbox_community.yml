@@ -92,13 +92,11 @@
     - name: Create or fetch NetBox API token for admin user
       ansible.builtin.command:
         cmd: >
-          podman-compose exec -T netbox /opt/netbox/netbox/manage.py shell -c "
-          from django.contrib.auth import get_user_model;
+          podman-compose exec -T netbox /opt/netbox/netbox/manage.py shell -c "from django.contrib.auth import get_user_model;
           from users.models import Token;
           user = get_user_model().objects.get(username='{{ netbox_admin_user }}');
           token, _ = Token.objects.get_or_create(user=user, description='{{ netbox_token_description }}');
-          print(token.key)
-          "
+          print(token.key)"
       args:
         chdir: "{{ netbox_clone_dir }}"
       register: netbox_token_result
