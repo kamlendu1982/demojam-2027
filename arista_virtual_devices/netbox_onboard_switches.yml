@@ -13,8 +13,13 @@
 #
 # Required at runtime (do NOT hardcode in this file or commit to git):
 #   -e netbox_token=<your NetBox API token>
-# In AAP, supply this via a Job Template survey or a Custom Credential
-# injected as an extra var, not as a plaintext Extra Variable.
+#   -e netbox_url=<the NetBox instance's base URL, e.g. http://<host>:8000>
+# In AAP, supply these via a Job Template survey, or chain this job after
+# netbox/deploy_netbox_community.yml in a Workflow Job Template - that
+# playbook already exposes both netbox_token and netbox_url via set_stats,
+# computed from whichever VM it actually just deployed NetBox on (see its
+# "Compute the NetBox URL for this deployment" task), so neither value
+# needs to be hardcoded or kept in sync by hand here.
 
 - name: Onboard Arista virtual switches into NetBox
   hosts: localhost
@@ -22,7 +27,6 @@
   gather_facts: false
 
   vars:
-    netbox_url: "http://ec2-18-226-224-180.us-east-2.compute.amazonaws.com:8000"
     netbox_validate_certs: true
     netbox_switch_group: "arista_switches"
 
@@ -42,6 +46,14 @@
           netbox_token is required. Pass it via -e netbox_token=... or an
           AAP survey/credential - never commit it to git or hardcode it here.
       when: netbox_token is not defined or netbox_token | length == 0
+
+    - name: Fail early if NetBox URL was not supplied
+      ansible.builtin.fail:
+        msg: >-
+          netbox_url is required. Pass it via -e netbox_url=..., or chain
+          this job after netbox/deploy_netbox_community.yml in a Workflow
+          Job Template, which exposes it via set_stats automatically.
+      when: netbox_url is not defined or netbox_url | length == 0
 
     - name: Fail early if no switches are defined in the inventory group
       ansible.builtin.fail:

@@ -129,14 +129,28 @@
               | list | first)
              | regex_replace('^NETBOX_TOKEN_KEY=', '') }}
 
-    # Exposes netbox_token to the next node in a Workflow Job Template -
-    # netbox_onboard_switches.yml already expects an extra var named
-    # exactly "netbox_token" (see its "Fail early if NetBox API token was
-    # not supplied" task), so no changes are needed there.
-    - name: Expose NetBox token as a job artifact (set_stats)
+    # inventory_hostname is exactly the host Ansible just connected to and
+    # deployed NetBox on in this very play - using it here (rather than a
+    # hardcoded address) means netbox_url is always correct for whichever
+    # VM this playbook actually ran against, instead of going stale the
+    # next time NetBox is deployed on a different host (confirmed live:
+    # job 1259 failed because netbox_onboard_switches.yml had a hardcoded
+    # URL pointing at a VM that was no longer the current NetBox host).
+    - name: Compute the NetBox URL for this deployment
+      ansible.builtin.set_fact:
+        netbox_url: "http://{{ inventory_hostname }}:{{ netbox_port }}"
+
+    # Exposes netbox_token and netbox_url to the next node in a Workflow
+    # Job Template - netbox_onboard_switches.yml already expects an extra
+    # var named exactly "netbox_token" (see its "Fail early if NetBox API
+    # token was not supplied" task) and now also "netbox_url" (its
+    # formerly-hardcoded default was removed), so no further changes are
+    # needed there beyond what's already been done.
+    - name: Expose NetBox token and URL as job artifacts (set_stats)
       ansible.builtin.set_stats:
         data:
           netbox_token: "{{ netbox_token }}"
+          netbox_url: "{{ netbox_url }}"
         aggregate: false
 
     - name: Display post-installation instructions
