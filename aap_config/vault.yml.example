@@ -1,0 +1,41 @@
+---
+# Template for aap_config/group_vars/all/vault.yml. Copy, fill in, encrypt:
+#
+#   cp aap_config/vault.yml.example aap_config/group_vars/all/vault.yml
+#   $EDITOR aap_config/group_vars/all/vault.yml
+#   ansible-vault encrypt aap_config/group_vars/all/vault.yml
+#
+# Only the ENCRYPTED file may be committed (enforced by the pre-commit hook).
+
+# New AAP instance (admin used by the CaC itself)
+vault_aap_hostname: https://CHANGE_ME
+vault_aap_username: admin
+vault_aap_password: CHANGE_ME
+
+# Same password you use with --ask-vault-pass; stored in AAP as the
+# "DemoJam | CaC Vault" credential so the self-apply job can decrypt this file.
+vault_cac_vault_password: CHANGE_ME
+
+# console.redhat.com -> Automation Hub -> Connect to Hub -> offline token
+vault_automation_hub_token: CHANGE_ME
+
+vault_ubuntu_ssh_private_key: |
+  -----BEGIN OPENSSH PRIVATE KEY-----
+  CHANGE_ME
+  -----END OPENSSH PRIVATE KEY-----
+vault_rhel_ssh_private_key: |
+  -----BEGIN OPENSSH PRIVATE KEY-----
+  CHANGE_ME
+  -----END OPENSSH PRIVATE KEY-----
+
+vault_arista_password: CHANGE_ME
+vault_arista_enable_password: ""
+
+vault_netbox_api_token: CHANGE_ME     # rotate: the old one was exposed in a survey default
+vault_netbox_admin_password: CHANGE_ME  # rotate: the old one was exposed in extra vars
+
+vault_maas_api_key: CHANGE_ME
+vault_github_mcp_token: CHANGE_ME
+# Token for the drift pipeline to launch remediation templates on THIS
+# instance. Create it after the first apply, then re-apply.
+vault_drift_aap_token: ""

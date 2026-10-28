@@ -1,0 +1,9 @@
+---
+# Objects stay in the built-in Default organization. Only its Galaxy
+# credentials are managed: Automation Hub first so certified collections
+# resolve there before public Galaxy.
+aap_organizations:
+  - name: "{{ demojam_organization }}"
+    galaxy_credentials:
+      - DemoJam | Automation Hub
+      - Ansible Galaxy

@@ -1,0 +1,29 @@
+---
+# Reconcile AAP with the objects declared in aap_config/group_vars/all/.
+#
+#   Laptop (bootstrap):  ansible-playbook -i aap_config/inventory aap_config/apply.yml --ask-vault-pass
+#   AAP (steady state):  "DemoJam | Apply Config as Code" job template
+- name: Apply DemoJam AAP Config as Code
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  vars:
+    # The EC2 source has no credential (relies on an IAM instance profile);
+    # syncing it during apply would fail on an instance without one. The
+    # SCM switch source syncs on launch of any template that uses it.
+    aap_configuration_dispatcher_exclude_roles:
+      - controller_inventory_source_update
+
+  pre_tasks:
+    - name: Fail early if the vault was not loaded
+      ansible.builtin.assert:
+        that:
+          - vault_aap_hostname is defined
+        fail_msg: >-
+          vault_* variables are missing. Run with --ask-vault-pass (laptop) or
+          attach the "DemoJam | CaC Vault" credential (AAP).
+        quiet: true
+
+  roles:
+    - infra.aap_configuration.dispatch

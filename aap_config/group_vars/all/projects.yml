@@ -1,0 +1,13 @@
+---
+# Public repo over HTTPS — no SCM credential needed.
+controller_projects:
+  - name: DemoJam | DemoJam 2027
+    description: Network drift manager, lab playbooks and AAP Config as Code
+    organization: "{{ demojam_organization }}"
+    scm_type: git
+    scm_url: "{{ demojam_repo_url }}"
+    scm_branch: "{{ demojam_repo_branch }}"
+    scm_update_on_launch: true
+    scm_clean: true
+    default_environment: DemoJam | Supported EE
+    wait: true

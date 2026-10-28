@@ -1,0 +1,24 @@
+---
+# Same shape as "Create Network Infra" on the old instance, minus the
+# per-node inventory overrides (the templates don't prompt for inventory,
+# so those overrides never applied).
+controller_workflows:
+  - name: DemoJam | Create Network Infra
+    description: NetBox -> Arista lab -> onboard switches -> Splunk logging
+    organization: "{{ demojam_organization }}"
+    destroy_current_nodes: true
+    simplified_workflow_nodes:
+      - identifier: deploy-netbox
+        unified_job_template: DemoJam | Deploy NetBox Community
+        always_nodes:
+          - deploy-arista-lab
+      - identifier: deploy-arista-lab
+        unified_job_template: DemoJam | Deploy Arista Lab
+        success_nodes:
+          - onboard-switches
+      - identifier: onboard-switches
+        unified_job_template: DemoJam | NetBox Onboard Switches
+        success_nodes:
+          - splunk-logging
+      - identifier: splunk-logging
+        unified_job_template: DemoJam | Configure Splunk Logging

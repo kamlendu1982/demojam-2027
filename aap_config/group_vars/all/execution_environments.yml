@@ -1,0 +1,17 @@
+---
+controller_execution_environments:
+  # Stock Red Hat EE: has ansible.platform, ansible.controller, arista.eos,
+  # ansible.netcommon and amazon.aws — enough for every template except the
+  # drift pipeline.
+  - name: DemoJam | Supported EE
+    description: Red Hat ee-supported-rhel9 (AAP 2.7)
+    organization: "{{ demojam_organization }}"
+    image: "{{ demojam_supported_ee_image }}"
+    pull: missing
+
+  # Needs pydantic-settings, mcp, openai, netbox-mcp-server, etc.
+  - name: DemoJam | Network Drift EE
+    description: Python deps for run_pipeline.py (external image, see README)
+    organization: "{{ demojam_organization }}"
+    image: "{{ demojam_drift_ee_image }}"
+    pull: missing
